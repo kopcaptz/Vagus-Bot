@@ -1,7 +1,57 @@
+// ============================================
+// AUTH: обёртка для всех API-запросов
+// ============================================
+
+function getAdminToken() {
+    return localStorage.getItem('vagus_admin_token') || '';
+}
+
+function setAdminToken(token) {
+    localStorage.setItem('vagus_admin_token', token);
+}
+
+async function apiFetch(url, options = {}) {
+    const token = getAdminToken();
+    if (token) {
+        options.headers = options.headers || {};
+        options.headers['X-Admin-Token'] = token;
+    }
+    const response = await fetch(url, options);
+    if (response.status === 401) {
+        const newToken = prompt('🔒 Требуется авторизация.\n\nВведите ADMIN_TOKEN:');
+        if (newToken) {
+            setAdminToken(newToken);
+            options.headers = options.headers || {};
+            options.headers['X-Admin-Token'] = newToken;
+            return fetch(url, options);
+        }
+    }
+    return response;
+}
+
+// Для multipart (FormData) — нельзя ставить Content-Type вручную
+async function apiFetchMultipart(url, formData) {
+    const token = getAdminToken();
+    const headers = {};
+    if (token) headers['X-Admin-Token'] = token;
+    const response = await fetch(url, { method: 'POST', headers, body: formData });
+    if (response.status === 401) {
+        const newToken = prompt('🔒 Требуется авторизация.\n\nВведите ADMIN_TOKEN:');
+        if (newToken) {
+            setAdminToken(newToken);
+            headers['X-Admin-Token'] = newToken;
+            return fetch(url, { method: 'POST', headers, body: formData });
+        }
+    }
+    return response;
+}
+
+// ============================================
+
 // Загрузка статистики
 async function loadStats() {
     try {
-        const response = await fetch('/api/stats');
+        const response = await apiFetch('/api/stats');
         const data = await response.json();
         
         let statsHtml = `<p><strong>Статус:</strong> ${data.status}</p>`;
@@ -79,7 +129,7 @@ document.getElementById('sendForm').addEventListener('submit', async (e) => {
     resultDiv.innerHTML = '<p>Отправка...</p>';
     
     try {
-        const response = await fetch('/api/send', {
+        const response = await apiFetch('/api/send', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -103,7 +153,7 @@ document.getElementById('sendForm').addEventListener('submit', async (e) => {
 // Загрузка информации о моделях
 async function loadModels() {
     try {
-        const response = await fetch('/api/models');
+        const response = await apiFetch('/api/models');
         const data = await response.json();
         
         // Установить выбранную модель в селекторе
@@ -139,7 +189,7 @@ let personasCache = [];
 // Загрузка списка персон
 async function loadPersonas() {
     try {
-        const response = await fetch('/api/personas');
+        const response = await apiFetch('/api/personas');
         const data = await response.json();
         
         const select = document.getElementById('personaSelect');
@@ -207,7 +257,7 @@ async function savePersona(saveAsNew) {
     status.innerHTML = '<p>Сохраняю...</p>';
 
     try {
-        const response = await fetch('/api/personas/save', {
+        const response = await apiFetch('/api/personas/save', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ id, name, prompt, saveAsNew: !!saveAsNew }),
@@ -258,7 +308,7 @@ async function selectPersona() {
     const persona = select.value;
     
     try {
-        const response = await fetch('/api/personas/select', {
+        const response = await apiFetch('/api/personas/select', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -285,7 +335,7 @@ async function selectModel() {
     const model = select.value;
     
     try {
-        const response = await fetch('/api/models/select', {
+        const response = await apiFetch('/api/models/select', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -320,7 +370,7 @@ async function testAI() {
     resultDiv.innerHTML = '<p>Обработка...</p>';
     
     try {
-        const response = await fetch('/api/ai/test', {
+        const response = await apiFetch('/api/ai/test', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -479,7 +529,7 @@ function exportHistory() {
 // Загрузка настроек контекста
 async function loadContextConfig() {
     try {
-        const response = await fetch('/api/context/config');
+        const response = await apiFetch('/api/context/config');
         const data = await response.json();
         
         if (data.success) {
@@ -513,7 +563,7 @@ async function saveContextConfig() {
     const includeSystemPrompt = document.getElementById('contextSystemPrompt').checked;
     
     try {
-        const response = await fetch('/api/context/config', {
+        const response = await apiFetch('/api/context/config', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -605,7 +655,7 @@ async function addToHistory() {
     resultDiv.innerHTML = '<p>Сохраняю сообщение в историю...</p>';
     
     try {
-        const response = await fetch('/api/history/add', {
+        const response = await apiFetch('/api/history/add', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -666,14 +716,14 @@ async function testAI() {
             formData.append('message', message || '');
             if (chatId) formData.append('chatId', chatId);
             imageFiles.slice(0, 5).forEach(f => formData.append('images', f));
-            response = await fetch('/api/ai/upload', {
+            response = await apiFetch('/api/ai/upload', {
                 method: 'POST',
                 body: formData,
             });
         } else {
             const requestBody = { message };
             if (chatId) requestBody.chatId = chatId;
-            response = await fetch('/api/ai/test', {
+            response = await apiFetch('/api/ai/test', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(requestBody),

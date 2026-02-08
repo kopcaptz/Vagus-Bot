@@ -38,6 +38,12 @@ export const config = {
     workspaceRoot: getEnvValue('WORKSPACE_ROOT') || '',
     commandTimeoutMs: Math.max(5000, parseInt(getEnvValue('TOOL_COMMAND_TIMEOUT_MS', '15000'), 10) || 15000),
   },
+  security: {
+    adminToken: getEnvValue('ADMIN_TOKEN') || '',
+    telegramAllowlist: (getEnvValue('TELEGRAM_ALLOWLIST') || '')
+      .split(',').map(s => s.trim()).filter(Boolean),
+    telegramAccessMode: (getEnvValue('TELEGRAM_ACCESS_MODE', 'open') as 'open' | 'allowlist'),
+  },
 };
 
 // Путь к файлу с выбранной моделью
