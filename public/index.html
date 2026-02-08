@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Vagus Bot - Панель управления</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🤖 Vagus Bot</h1>
+            <p>Панель управления ботом</p>
+        </header>
+
+        <div class="stats-card">
+            <h2>📊 Статистика</h2>
+            <div id="stats">
+                <p>Загрузка...</p>
+            </div>
+            <button onclick="loadStats()">🔄 Обновить</button>
+        </div>
+
+        <div class="send-card">
+            <h2>📤 Отправить сообщение</h2>
+            <p style="color: #666; font-size: 0.9em; margin-bottom: 15px;">
+                ⚠️ Требуется подключенный Telegram бот
+            </p>
+            <form id="sendForm">
+                <input type="text" id="chatId" placeholder="Chat ID" required>
+                <textarea id="message" placeholder="Сообщение" required></textarea>
+                <button type="submit">Отправить</button>
+            </form>
+            <div id="result"></div>
+        </div>
+
+        <div class="model-card">
+            <h2>🤖 Выбор AI модели</h2>
+            <div id="modelInfo">
+                <p>Загрузка...</p>
+            </div>
+            <div id="modelSelector" style="margin-top: 15px;">
+                <select id="modelSelect" style="width: 100%; padding: 10px; margin-bottom: 10px;">
+                    <option value="none">Без AI</option>
+                    <option value="openai-gpt-4">OpenAI GPT-4</option>
+                    <option value="openai-gpt-3.5">OpenAI GPT-3.5 Turbo</option>
+                    <option value="anthropic-claude">Anthropic Claude</option>
+                </select>
+                <button onclick="selectModel()">Выбрать модель</button>
+            </div>
+            <div id="personaSelector" style="margin-top: 15px;">
+                <label style="display: block; margin-bottom: 5px; font-weight: bold;">🎭 Выберите Личность</label>
+                <select id="personaSelect" style="width: 100%; padding: 10px; margin-bottom: 10px;">
+                    <option value="default">По умолчанию</option>
+                </select>
+                <div style="display: flex; gap: 10px;">
+                    <button onclick="selectPersona()" style="flex: 1;">Применить личность</button>
+                    <button onclick="togglePersonaEditor()" style="flex: 1; background: #6c757d;">⚙️ Редактировать</button>
+                </div>
+            </div>
+            <div id="personaEditor" style="margin-top: 15px; display: none;">
+                <div style="margin-bottom: 10px;">
+                    <label style="display: block; margin-bottom: 5px; font-weight: bold;">Имя личности</label>
+                    <input type="text" id="personaName" placeholder="Например: Инженер Solar" style="width: 100%; padding: 10px;">
+                </div>
+                <div style="margin-bottom: 10px;">
+                    <label style="display: block; margin-bottom: 5px; font-weight: bold;">System Prompt</label>
+                    <textarea id="personaPrompt" rows="6" placeholder="Опиши стиль и поведение личности..." style="width: 100%; padding: 10px;"></textarea>
+                </div>
+                <div style="display: flex; gap: 10px;">
+                    <button onclick="savePersona(false)" style="flex: 1; background: #28a745;">Сохранить</button>
+                    <button onclick="savePersona(true)" style="flex: 1; background: #17a2b8;">Сохранить как новую</button>
+                    <button onclick="deletePersona()" style="flex: 1; background: #dc3545;">Удалить</button>
+                </div>
+                <div id="personaEditorStatus" style="margin-top: 10px;"></div>
+            </div>
+            <div id="modelTest" style="margin-top: 15px;">
+                <h3>Тест AI</h3>
+                <div style="background: #fff3cd; padding: 10px; border-radius: 6px; margin-bottom: 10px; font-size: 0.85em; border-left: 4px solid #ffc107;">
+                    <strong>⚠️ ВАЖНО для контекста:</strong><br>
+                    <strong>1. Сначала создайте историю:</strong> Запустите <code>npx tsx test-context-simple.js</code><br>
+                    <strong>2. Укажите Chat ID:</strong> <code>test_simple_context</code> (из тестового скрипта)<br>
+                    <strong>3. Задайте вопрос:</strong> "Какой код доступа я назвал?"<br>
+                    <strong>Без Chat ID контекст НЕ работает!</strong>
+                </div>
+                <div style="margin-bottom: 10px;">
+                    <label style="display: block; margin-bottom: 5px; font-weight: bold;">Chat ID <span style="color: red;">*</span> (обязательно для контекста):</label>
+                    <input type="text" id="testChatId" placeholder="test_simple_context" style="width: 100%; padding: 10px; border: 2px solid #ffc107;">
+                    <small style="color: #666; font-size: 0.85em;">Запустите тестовый скрипт для создания истории</small>
+                </div>
+                <div style="margin-bottom: 10px;">
+                    <label style="display: block; margin-bottom: 5px; font-weight: bold;">Сообщение:</label>
+                    <input type="text" id="testMessage" placeholder="Какой код доступа я назвал?" style="width: 100%; padding: 10px;">
+                </div>
+                <div style="margin-bottom: 10px;">
+                    <label style="display: block; margin-bottom: 5px; font-weight: bold;">📷 Изображения (Vision):</label>
+                    <input type="file" id="testImages" accept="image/*" multiple style="width: 100%; padding: 8px;">
+                    <small style="color: #666; font-size: 0.85em;">До 5 изображений, до 5 MB каждое</small>
+                </div>
+                <div style="margin-bottom: 10px;">
+                    <label style="display: block; margin-bottom: 5px; font-weight: bold;">Кто отправляет сообщение:</label>
+                    <select id="testRole" style="width: 100%; padding: 10px;">
+                        <option value="user">Пользователь</option>
+                        <option value="assistant">Бот</option>
+                    </select>
+                </div>
+                <div style="display: flex; gap: 10px;">
+                    <button onclick="addToHistory()" style="flex: 1; padding: 12px; font-size: 16px; font-weight: bold; background: #28a745;">Добавить в историю</button>
+                    <button onclick="testAI()" style="flex: 1; padding: 12px; font-size: 16px; font-weight: bold;">Протестировать</button>
+                </div>
+                <div id="testResult" style="margin-top: 10px;"></div>
+            </div>
+        </div>
+
+        <div class="context-card">
+            <h2>🧠 Контекстная память</h2>
+            <div id="contextConfig">
+                <p>Загрузка...</p>
+            </div>
+            <div id="contextSettings" style="margin-top: 15px;">
+                <label style="display: flex; align-items: center; margin-bottom: 10px;">
+                    <input type="checkbox" id="contextEnabled" style="margin-right: 10px; width: 20px; height: 20px;">
+                    <span>Включить контекстную память</span>
+                </label>
+                <div style="margin-bottom: 10px;">
+                    <label>Максимум сообщений в контексте:</label>
+                    <input type="number" id="contextMaxMessages" min="1" max="50" value="10" style="width: 100%; padding: 8px; margin-top: 5px;">
+                </div>
+                <div style="margin-bottom: 10px;">
+                    <label>Максимум токенов (приблизительно):</label>
+                    <input type="number" id="contextMaxTokens" min="100" max="10000" value="2000" style="width: 100%; padding: 8px; margin-top: 5px;">
+                </div>
+                <label style="display: flex; align-items: center; margin-bottom: 10px;">
+                    <input type="checkbox" id="contextSystemPrompt" style="margin-right: 10px; width: 20px; height: 20px;">
+                    <span>Включать системный промпт</span>
+                </label>
+                <button onclick="saveContextConfig()" style="width: 100%; margin-top: 10px;">💾 Сохранить настройки</button>
+            </div>
+            <div id="contextPreview" style="margin-top: 15px; padding: 10px; background: #f5f5f5; border-radius: 8px;">
+                <h3 style="margin-bottom: 10px;">Предпросмотр контекста</h3>
+                <input type="text" id="contextPreviewChatId" placeholder="Chat ID для предпросмотра" style="width: 70%; padding: 8px; margin-right: 5px;">
+                <button onclick="previewContext()" style="width: 25%;">Показать</button>
+                <div id="contextPreviewContent" style="margin-top: 10px;"></div>
+            </div>
+        </div>
+
+        <div class="history-card">
+            <h2>📜 История сообщений</h2>
+            <div style="margin-bottom: 10px;">
+                <label style="display: block; margin-bottom: 5px; font-weight: bold;">Chat ID:</label>
+                <input type="text" id="historychatId" placeholder="web_test_1" style="width: 100%; padding: 10px;">
+            </div>
+
+            <div class="history-controls">
+                <input type="text" id="history-search" placeholder="🔍 Поиск по тексту..." />
+
+                <select id="history-role">
+                    <option value="">Все роли</option>
+                    <option value="user">👤 Пользователь</option>
+                    <option value="bot">🤖 Бот</option>
+                </select>
+
+                <button onclick="loadHistory()">🔄 Обновить</button>
+                <button onclick="clearCurrentChat()" class="danger">🗑 Очистить чат</button>
+                <button onclick="exportHistory()" class="success">💾 JSON</button>
+            </div>
+
+            <div id="history-list" class="history-container">
+                <div class="history-empty">Выберите чат или введите ID для просмотра</div>
+            </div>
+
+            <div class="history-pagination" id="history-pagination"></div>
+        </div>
+
+        <div class="info-card">
+            <h2>ℹ️ Информация</h2>
+            <p>Это простой бот с возможностью расширения.</p>
+            <p><strong>Доступно:</strong></p>
+            <ul>
+                <li>✅ AI обработка сообщений (OpenAI, Anthropic)</li>
+                <li>✅ Выбор моделей через веб-интерфейс</li>
+                <li>✅ База данных для истории сообщений</li>
+                <li>✅ Контекстная память для улучшения ответов</li>
+                <li>✅ Доступ из локальной сети</li>
+            </ul>
+            <p><strong>В будущем можно добавить:</strong></p>
+            <ul>
+                <li>Дополнительные каналы (WhatsApp, Discord)</li>
+                <li>Персонализация ответов на основе истории</li>
+                <li>Плагины и расширения</li>
+            </ul>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>
