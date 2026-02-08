@@ -8,11 +8,10 @@ function normalizeImageAttachments(raw: unknown): ImageAttachment[] {
   if (!Array.isArray(raw)) return [];
   return raw
     .map((item: unknown) => {
-      if (item && typeof item === 'object' && 'data' in item && typeof (item as { data: unknown }).data === 'string') {
-        const data = (item as { data: string }).data;
-        const mediaType = typeof (item as { mediaType?: string }).mediaType === 'string'
-          ? (item as { mediaType: string }).mediaType
-          : 'image/jpeg';
+      if (item && typeof item === 'object' && 'data' in item && typeof (item as Record<string, unknown>).data === 'string') {
+        const data = (item as Record<string, unknown>).data as string;
+        const mt = (item as Record<string, unknown>).mediaType;
+        const mediaType = typeof mt === 'string' ? mt : 'image/jpeg';
         return { data, mediaType };
       }
       return null;

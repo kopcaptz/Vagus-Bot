@@ -129,7 +129,7 @@ async function processWithOpenAI(
     });
 
     if (!response.ok) {
-      const error = await response.json().catch(() => ({ error: 'Unknown error' }));
+      const error = await response.json().catch(() => ({ error: 'Unknown error' })) as Record<string, any>;
       const errorMessage = error?.error?.message || JSON.stringify(error);
       if (error?.error?.code === 'invalid_api_key') {
         throw new Error('❌ Неверный API ключ OpenAI. Проверьте ключ в файле .env. Получите новый ключ на https://platform.openai.com/account/api-keys');
@@ -137,7 +137,7 @@ async function processWithOpenAI(
       throw new Error(`OpenAI API error: ${errorMessage}`);
     }
 
-    const data = await response.json();
+    const data = await response.json() as Record<string, any>;
     const msg = data.choices?.[0]?.message;
     totalTokens += data.usage?.total_tokens ?? 0;
 
@@ -267,7 +267,7 @@ async function processWithAnthropic(
       throw new Error(`Anthropic API error: ${JSON.stringify(error)}`);
     }
 
-    const data = await response.json();
+    const data = await response.json() as Record<string, any>;
     const content = data.content ?? [];
     totalInputTokens += data.usage?.input_tokens ?? 0;
     totalOutputTokens += data.usage?.output_tokens ?? 0;
