@@ -1,7 +1,7 @@
 import { getModelConfig, type ModelConfig } from '../config/config.js';
 import { getSystemPrompt } from '../config/personas.js';
 import type { ContextMessage } from '../db/context.js';
-import { isToolsEnabled, getOpenAITools, getAnthropicTools, executeTool } from './tools.js';
+import { skillRegistry } from '../skills/registry.js';
 
 const MAX_TOOL_ITERATIONS = 5;
 
@@ -106,7 +106,7 @@ async function processWithOpenAI(
     ];
   }
 
-  const tools = isToolsEnabled() ? getOpenAITools() : undefined;
+  const tools = skillRegistry.isEnabled() ? skillRegistry.getAllToolsForOpenAI() : undefined;
   let totalTokens = 0;
   let iterations = 0;
 
@@ -162,7 +162,7 @@ async function processWithOpenAI(
         } catch {
           args = {};
         }
-        const result = executeTool(name, args);
+        const result = await skillRegistry.executeTool(name, args);
         toolResults.push({ type: 'tool_result', tool_call_id: tc.id, content: result });
       }
       messages.push({ role: 'user', content: toolResults });
@@ -238,7 +238,7 @@ async function processWithAnthropic(
     ];
   }
 
-  const tools = isToolsEnabled() ? getAnthropicTools() : undefined;
+  const tools = skillRegistry.isEnabled() ? skillRegistry.getAllToolsForAnthropic() : undefined;
   let totalInputTokens = 0;
   let totalOutputTokens = 0;
   let iterations = 0;
@@ -275,11 +275,11 @@ async function processWithAnthropic(
     const toolUses = content.filter((b: AnthropicContentBlock) => b.type === 'tool_use');
     if (tools && toolUses.length > 0 && iterations < MAX_TOOL_ITERATIONS) {
       messages.push({ role: 'assistant', content });
-      const toolResults: AnthropicContentBlock[] = toolUses.map((tu: { type: 'tool_use'; id: string; name: string; input: Record<string, unknown> }) => ({
-        type: 'tool_result',
-        tool_use_id: tu.id,
-        content: executeTool(tu.name, tu.input ?? {}),
-      }));
+      const toolResults: AnthropicContentBlock[] = [];
+      for (const tu of toolUses as Array<{ type: 'tool_use'; id: string; name: string; input: Record<string, unknown> }>) {
+        const result = await skillRegistry.executeTool(tu.name, tu.input ?? {});
+        toolResults.push({ type: 'tool_result', tool_use_id: tu.id, content: result });
+      }
       messages.push({ role: 'user', content: toolResults });
       iterations++;
       continue;

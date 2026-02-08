@@ -1,10 +1,23 @@
+/**
+ * CoreSkill — базовые инструменты: файловая система и терминал.
+ *
+ * Вся логика безопасности (WORKSPACE_ROOT, blocklist) перенесена из старого tools.ts.
+ */
+
 import fs from 'fs';
 import path from 'path';
 import { execSync } from 'child_process';
-import { config } from '../config/config.js';
+import { config } from '../../config/config.js';
+import type { Skill, ToolDefinition } from '../types.js';
+
+// ============================================
+// Константы
+// ============================================
 
 const MAX_FILE_SIZE = 500 * 1024; // 500 KB
-const MAX_READ_ENCODING = 'utf-8';
+const MAX_READ_ENCODING = 'utf-8' as const;
+const MAX_DIR_ENTRIES = 200;
+
 const TEXT_EXTENSIONS = new Set([
   '.txt', '.md', '.json', '.yml', '.yaml', '.xml', '.html', '.css', '.js', '.ts', '.mjs', '.cjs',
   '.py', '.sh', '.bat', '.ps1', '.env', '.log', '.csv', '.sql', '.graphql',
@@ -25,6 +38,10 @@ const COMMAND_BLOCKLIST: RegExp[] = [
   /\bcurl\s+.*\s+\|\s*sh\b/,
 ];
 
+// ============================================
+// Утилиты безопасности
+// ============================================
+
 function getWorkspaceRoot(): string | null {
   const root = config.tools.workspaceRoot.trim();
   if (!root) return null;
@@ -33,11 +50,7 @@ function getWorkspaceRoot(): string | null {
   return resolved;
 }
 
-/**
- * Resolve and validate path: must be inside workspace root. No .. or symlinks outside.
- * For existing paths follows symlinks; for non-existing (e.g. write) returns resolved path inside root.
- */
-export function resolvePath(relativePath: string): string | null {
+function resolvePath(relativePath: string): string | null {
   const root = getWorkspaceRoot();
   if (!root) return null;
   const normalized = path.normalize(relativePath).replace(/^(\.\/)+/, '');
@@ -53,6 +66,14 @@ export function resolvePath(relativePath: string): string | null {
     return null;
   }
 }
+
+function isCommandBlocked(command: string): boolean {
+  return COMMAND_BLOCKLIST.some(re => re.test(command.trim()));
+}
+
+// ============================================
+// Безопасные операции
+// ============================================
 
 function readFileSafe(filePath: string): string {
   const stat = fs.statSync(filePath);
@@ -75,9 +96,43 @@ function writeFileSafe(filePath: string, content: string): string {
   return `Файл записан: ${root ? path.relative(root, resolved) : resolved}`;
 }
 
-function isCommandBlocked(command: string): boolean {
-  const trimmed = command.trim();
-  return COMMAND_BLOCKLIST.some(re => re.test(trimmed));
+function listDirSafe(dirPath: string): string {
+  const resolved = resolvePath(dirPath || '.');
+  if (!resolved) return 'Ошибка: путь вне рабочей директории или WORKSPACE_ROOT не задан.';
+  if (!fs.existsSync(resolved)) return `Ошибка: директория не найдена: ${dirPath || '.'}`;
+
+  const stat = fs.statSync(resolved);
+  if (!stat.isDirectory()) return 'Ошибка: путь не является директорией.';
+
+  const entries = fs.readdirSync(resolved, { withFileTypes: true });
+  if (entries.length === 0) return '(директория пуста)';
+
+  const root = getWorkspaceRoot();
+  const relDir = root ? path.relative(root, resolved) : resolved;
+
+  const lines: string[] = [`Содержимое: ${relDir || '.'}/`];
+  let count = 0;
+
+  for (const entry of entries) {
+    if (count >= MAX_DIR_ENTRIES) {
+      lines.push(`... и ещё ${entries.length - MAX_DIR_ENTRIES} элементов`);
+      break;
+    }
+    if (entry.isDirectory()) {
+      lines.push(`  [DIR]  ${entry.name}/`);
+    } else {
+      try {
+        const size = fs.statSync(path.join(resolved, entry.name)).size;
+        const sizeStr = size < 1024 ? `${size} B` : `${(size / 1024).toFixed(1)} KB`;
+        lines.push(`  [FILE] ${entry.name} (${sizeStr})`);
+      } catch {
+        lines.push(`  [FILE] ${entry.name}`);
+      }
+    }
+    count++;
+  }
+
+  return lines.join('\n');
 }
 
 function runCommandSafe(command: string): string {
@@ -99,44 +154,18 @@ function runCommandSafe(command: string): string {
   }
 }
 
-export function executeTool(name: string, args: Record<string, unknown>): string {
-  console.log(`🔧 Tool: ${name}`, args);
-  try {
-    switch (name) {
-      case 'read_file': {
-        const p = typeof args.path === 'string' ? args.path : String(args.path ?? '');
-        const resolved = resolvePath(p);
-        if (!resolved) return 'Ошибка: путь вне рабочей директории или WORKSPACE_ROOT не задан.';
-        return readFileSafe(resolved);
-      }
-      case 'write_file': {
-        const p = typeof args.path === 'string' ? args.path : String(args.path ?? '');
-        const content = typeof args.content === 'string' ? args.content : String(args.content ?? '');
-        return writeFileSafe(p, content);
-      }
-      case 'run_command': {
-        const cmd = typeof args.command === 'string' ? args.command : String(args.command ?? '');
-        return runCommandSafe(cmd);
-      }
-      default:
-        return `Неизвестный инструмент: ${name}`;
-    }
-  } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : String(err);
-    return `Ошибка: ${msg}`;
-  }
-}
+// ============================================
+// CoreSkill
+// ============================================
 
-export function isToolsEnabled(): boolean {
-  return config.tools.enabled;
-}
+export class CoreSkill implements Skill {
+  readonly id = 'core';
+  readonly name = 'Core Tools';
+  readonly description = 'File system and terminal tools';
 
-/** Схемы инструментов для OpenAI (tools + tool_choice не задаём — модель сама решает) */
-export function getOpenAITools(): Array<{ type: 'function'; function: { name: string; description: string; parameters: { type: 'object'; properties: Record<string, unknown>; required?: string[] } } }> {
-  return [
-    {
-      type: 'function',
-      function: {
+  getTools(): ToolDefinition[] {
+    return [
+      {
         name: 'read_file',
         description: 'Прочитать содержимое текстового файла в рабочей директории. Путь задаётся относительно WORKSPACE_ROOT.',
         parameters: {
@@ -147,10 +176,7 @@ export function getOpenAITools(): Array<{ type: 'function'; function: { name: st
           required: ['path'],
         },
       },
-    },
-    {
-      type: 'function',
-      function: {
+      {
         name: 'write_file',
         description: 'Записать текст в файл в рабочей директории. Путь задаётся относительно WORKSPACE_ROOT.',
         parameters: {
@@ -162,10 +188,17 @@ export function getOpenAITools(): Array<{ type: 'function'; function: { name: st
           required: ['path', 'content'],
         },
       },
-    },
-    {
-      type: 'function',
-      function: {
+      {
+        name: 'list_dir',
+        description: 'Показать файлы и директории по указанному пути внутри рабочей директории.',
+        parameters: {
+          type: 'object',
+          properties: {
+            path: { type: 'string', description: 'Относительный путь к директории (по умолчанию: корень)' },
+          },
+        },
+      },
+      {
         name: 'run_command',
         description: 'Выполнить одну команду в терминале (в рабочей директории). Опасные команды (rm -rf /, sudo и т.п.) запрещены.',
         parameters: {
@@ -176,46 +209,36 @@ export function getOpenAITools(): Array<{ type: 'function'; function: { name: st
           required: ['command'],
         },
       },
-    },
-  ];
-}
+    ];
+  }
 
-/** Схемы инструментов для Anthropic (tools array) */
-export function getAnthropicTools(): Array<{ name: string; description: string; input_schema: { type: 'object'; properties: Record<string, unknown>; required?: string[] } }> {
-  return [
-    {
-      name: 'read_file',
-      description: 'Прочитать содержимое текстового файла в рабочей директории. Путь задаётся относительно WORKSPACE_ROOT.',
-      input_schema: {
-        type: 'object',
-        properties: {
-          path: { type: 'string', description: 'Относительный путь к файлу' },
-        },
-        required: ['path'],
-      },
-    },
-    {
-      name: 'write_file',
-      description: 'Записать текст в файл в рабочей директории. Путь задаётся относительно WORKSPACE_ROOT.',
-      input_schema: {
-        type: 'object',
-        properties: {
-          path: { type: 'string', description: 'Относительный путь к файлу' },
-          content: { type: 'string', description: 'Содержимое файла' },
-        },
-        required: ['path', 'content'],
-      },
-    },
-    {
-      name: 'run_command',
-      description: 'Выполнить одну команду в терминале (в рабочей директории). Опасные команды (rm -rf /, sudo и т.п.) запрещены.',
-      input_schema: {
-        type: 'object',
-        properties: {
-          command: { type: 'string', description: 'Команда для выполнения (одна строка)' },
-        },
-        required: ['command'],
-      },
-    },
-  ];
+  async execute(toolName: string, args: Record<string, unknown>): Promise<string> {
+    switch (toolName) {
+      case 'read_file': {
+        const p = typeof args.path === 'string' ? args.path : String(args.path ?? '');
+        const resolved = resolvePath(p);
+        if (!resolved) return 'Ошибка: путь вне рабочей директории или WORKSPACE_ROOT не задан.';
+        return readFileSafe(resolved);
+      }
+
+      case 'write_file': {
+        const p = typeof args.path === 'string' ? args.path : String(args.path ?? '');
+        const content = typeof args.content === 'string' ? args.content : String(args.content ?? '');
+        return writeFileSafe(p, content);
+      }
+
+      case 'list_dir': {
+        const p = typeof args.path === 'string' ? args.path : String(args.path ?? '.');
+        return listDirSafe(p);
+      }
+
+      case 'run_command': {
+        const cmd = typeof args.command === 'string' ? args.command : String(args.command ?? '');
+        return runCommandSafe(cmd);
+      }
+
+      default:
+        return `Неизвестный инструмент в CoreSkill: ${toolName}`;
+    }
+  }
 }
