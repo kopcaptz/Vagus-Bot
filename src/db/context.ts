@@ -2,6 +2,7 @@ import { getRecentMessages } from './queries.js';
 import type { Message } from './types.js';
 import { getContextConfig } from '../config/context.js';
 import { getSystemPrompt } from '../config/personas.js';
+import { loadUserMemories } from '../skills/memory/index.js';
 
 /**
  * Форматированное сообщение для AI контекста
@@ -17,9 +18,10 @@ export interface ContextMessage {
  * 
  * @param chatId - ID чата
  * @param currentMessage - Текущее сообщение пользователя (не включается в контекст)
+ * @param userId - ID пользователя (для загрузки долговременной памяти)
  * @returns Массив сообщений в формате для AI провайдеров
  */
-export function getContextForAI(chatId: string, currentMessage?: string): ContextMessage[] {
+export function getContextForAI(chatId: string, currentMessage?: string, userId?: string): ContextMessage[] {
   const contextConfig = getContextConfig();
   
   // Если контекст отключен, возвращаем только текущее сообщение
@@ -51,9 +53,22 @@ export function getContextForAI(chatId: string, currentMessage?: string): Contex
 
   // Добавляем системный промпт, если включен
   if (contextConfig.includeSystemPrompt) {
+    let systemContent = `${getSystemPrompt()} Учитывай контекст предыдущих сообщений в разговоре.`;
+
+    // Инъекция долговременной памяти
+    const memoryUserId = userId || chatId;
+    const memories = loadUserMemories(memoryUserId);
+    if (memories) {
+      systemContent += `\n\nUser's long-term memory (facts you know about this user):\n${memories}\n\nUse memory_save to store new important facts you learn.`;
+      console.log(`🧠 Память загружена для ${memoryUserId}: ${memories.split('\n').length} фактов`);
+    }
+
+    // Передаём userId чтобы AI мог вызывать memory_save
+    systemContent += `\n\nCurrent user ID: ${memoryUserId}. Use this ID when calling memory_save or memory_read.`;
+
     contextMessages.push({
       role: 'system',
-      content: `${getSystemPrompt()} Учитывай контекст предыдущих сообщений в разговоре.`,
+      content: systemContent,
     });
   }
 

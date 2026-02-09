@@ -2,13 +2,22 @@
  * registry.ts — реестр каналов.
  *
  * Тонкий оркестратор жизненного цикла.
- * НЕ содержит логику обработки сообщений (это router.ts).
+ * handleMessage() делегирует в router.routeMessage().
  */
 
-import type { ChannelPlugin } from './types.js';
+import type { ChannelPlugin, IncomingMessage, MessageResult } from './types.js';
+import { routeMessage } from './router.js';
 
 class ChannelRegistry {
   private channels = new Map<string, ChannelPlugin>();
+
+  /**
+   * Обработать входящее сообщение (сохранить user/session/messages, команды, AI, вернуть ответ).
+   * Каналы вызывают этот метод вместо прямого вызова routeMessage().
+   */
+  async handleMessage(msg: IncomingMessage): Promise<MessageResult | null> {
+    return routeMessage(msg);
+  }
 
   /** Зарегистрировать канал */
   register(plugin: ChannelPlugin): void {

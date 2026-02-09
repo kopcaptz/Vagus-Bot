@@ -3,7 +3,6 @@ import multer from 'multer';
 import { getSelectedModel, setSelectedModel, getModelConfig, type AIModel } from '../config/config.js';
 import type { ImageAttachment } from '../ai/models.js';
 import type { IncomingMessage } from '../channels/types.js';
-import { routeMessage } from '../channels/router.js';
 import { channelRegistry } from '../channels/registry.js';
 import { authMiddleware } from './auth.js';
 
@@ -11,12 +10,13 @@ function normalizeImageAttachments(raw: unknown): ImageAttachment[] {
   if (!Array.isArray(raw)) return [];
   return raw
     .map((item: unknown) => {
-      if (item && typeof item === 'object' && 'data' in item && typeof (item as { data: unknown }).data === 'string') {
-        const data = (item as { data: string }).data;
-        const mediaType = typeof (item as { mediaType?: string }).mediaType === 'string'
-          ? (item as { mediaType: string }).mediaType
-          : 'image/jpeg';
-        return { data, mediaType };
+      if (item && typeof item === 'object' && 'data' in item) {
+        const obj = item as Record<string, unknown>;
+        if (typeof obj.data === 'string') {
+          const data = obj.data;
+          const mediaType = typeof obj.mediaType === 'string' ? obj.mediaType : 'image/jpeg';
+          return { data, mediaType };
+        }
       }
       return null;
     })
@@ -88,9 +88,11 @@ export function createApiRouter() {
     res.json({
       available: [
         { id: 'none', name: 'Без AI', provider: 'none' },
-        { id: 'openai-gpt-4', name: 'OpenAI GPT-4', provider: 'openai' },
-        { id: 'openai-gpt-3.5', name: 'OpenAI GPT-3.5 Turbo', provider: 'openai' },
-        { id: 'anthropic-claude', name: 'Anthropic Claude', provider: 'anthropic' },
+        { id: 'FREE', name: 'Gemini 2.0 Flash (Free)', provider: 'openai' },
+        { id: 'BUDGET', name: 'DeepSeek Chat', provider: 'openai' },
+        { id: 'PRO_CODE', name: 'Claude 3.5 Sonnet', provider: 'openai' },
+        { id: 'FRONTIER', name: 'Claude 3.7 Sonnet', provider: 'openai' },
+        { id: 'FREE_TOP', name: 'Kimi K2.5 (Free)', provider: 'openai' },
       ],
       selected: getSelectedModel(),
       config: modelConfig.provider !== 'none' ? {
@@ -104,7 +106,7 @@ export function createApiRouter() {
   router.post('/api/models/select', (req, res) => {
     try {
       const { model } = req.body;
-      const validModels: AIModel[] = ['none', 'openai-gpt-4', 'openai-gpt-3.5', 'anthropic-claude'];
+      const validModels: AIModel[] = ['none', 'FREE', 'BUDGET', 'PRO_CODE', 'FRONTIER', 'FREE_TOP'];
       if (!validModels.includes(model)) {
         return res.status(400).json({ error: 'Неверная модель' });
       }
@@ -200,7 +202,7 @@ export function createApiRouter() {
         images: imageAttachments.length > 0 ? imageAttachments : undefined,
       };
 
-      const result = await routeMessage(incoming);
+      const result = await channelRegistry.handleMessage(incoming);
 
       if (!result) {
         return res.status(500).json({ error: 'Ошибка обработки' });
@@ -245,7 +247,7 @@ export function createApiRouter() {
         images: imageAttachments.length > 0 ? imageAttachments : undefined,
       };
 
-      const result = await routeMessage(incoming);
+      const result = await channelRegistry.handleMessage(incoming);
 
       if (!result) {
         return res.status(500).json({ error: 'Ошибка обработки' });

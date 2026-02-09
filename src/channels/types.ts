@@ -1,6 +1,13 @@
 import type { ImageAttachment } from '../ai/models.js';
 
 // ============================================
+// Callback для статуса обработки (live typing)
+// ============================================
+
+/** Вызывается роутером/AI для уведомления канала о прогрессе */
+export type StatusCallback = (status: string) => Promise<void>;
+
+// ============================================
 // Входящее сообщение (единый формат для всех каналов)
 // ============================================
 
@@ -23,6 +30,8 @@ export interface IncomingMessage {
   images?: ImageAttachment[];
   /** Оригинальный объект канала (grammY Context, Express req и т.п.) */
   raw?: unknown;
+  /** Callback для live-статуса (Telegram: editMessage, Web: ignore) */
+  onStatus?: StatusCallback;
 }
 
 // ============================================

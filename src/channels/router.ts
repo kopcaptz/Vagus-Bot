@@ -20,6 +20,7 @@ import {
   clearChatHistory,
 } from '../db/queries.js';
 import { getContextForAI } from '../db/context.js';
+import { userRateLimiter } from '../server/rate-limit.js';
 
 // ============================================
 // Основная точка входа
@@ -57,7 +58,7 @@ export async function routeMessage(msg: IncomingMessage): Promise<MessageResult 
     is_bot: false,
   });
 
-  // --- Команды ---
+  // --- Команды (без rate limit) ---
   const commandResult = handleCommand(text, chatId);
   if (commandResult !== null) {
     saveMessage({
@@ -70,8 +71,13 @@ export async function routeMessage(msg: IncomingMessage): Promise<MessageResult 
     return { text: commandResult };
   }
 
+  // --- Rate limit (только для AI запросов, не для команд) ---
+  if (!userRateLimiter.check(msg.userId)) {
+    return { text: '⏳ Слишком много запросов. Подождите минуту.' };
+  }
+
   // --- AI обработка ---
-  return await processAIMessage(chatId, text, images);
+  return await processAIMessage(chatId, userId, text, images, msg.onStatus);
 }
 
 // ============================================
@@ -147,14 +153,18 @@ function handleCommand(text: string, chatId: string): string | null {
 
 async function processAIMessage(
   chatId: string,
+  userId: string,
   text: string,
   images?: ImageAttachment[],
+  onStatus?: (status: string) => Promise<void>,
 ): Promise<MessageResult | null> {
   const selectedModel = getSelectedModel();
   if (selectedModel === 'none') {
     const noModelText = images
       ? '✅ Фото получено.\n\n⚠️ AI модель не выбрана — выберите модель в веб-интерфейсе.'
-      : `✅ Получено: "${text}"\n\n⚠️ AI модель не выбрана. Используйте веб-интерфейс для выбора модели.`;
+      : (text.length > 150
+          ? `✅ Получено (сообщение из ${text.length} символов).\n\n⚠️ AI модель не выбрана. Используйте веб-интерфейс для выбора модели.`
+          : `✅ Получено: "${text}"\n\n⚠️ AI модель не выбрана. Используйте веб-интерфейс для выбора модели.`);
     saveMessage({
       chat_id: chatId,
       user_id: 'bot',
@@ -171,7 +181,7 @@ async function processAIMessage(
     const messageForContext = text || '[изображение]';
 
     if (contextConfig.enabled) {
-      contextMessages = getContextForAI(chatId, messageForContext);
+      contextMessages = getContextForAI(chatId, messageForContext, userId);
       console.log(`📚 Контекст: ${contextMessages.length} сообщений для чата ${chatId}`);
     }
 
@@ -179,6 +189,7 @@ async function processAIMessage(
       text,
       contextMessages,
       images && images.length > 0 ? images : undefined,
+      onStatus,
     );
 
     if (!aiResponse) {

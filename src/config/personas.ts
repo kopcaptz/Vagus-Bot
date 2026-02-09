@@ -1,5 +1,6 @@
 import { readFileSync, writeFileSync, existsSync } from 'fs';
 import { join } from 'path';
+import { skillRegistry } from '../skills/registry.js';
 
 export type PersonaId = string;
 
@@ -107,7 +108,45 @@ export function setSelectedPersona(persona: PersonaId) {
 export function getSystemPrompt(): string {
   const personas = getMergedPersonas();
   const personaId = getSelectedPersona();
-  return personas[personaId]?.prompt || DEFAULT_PERSONAS.default.prompt;
+  const basePrompt = personas[personaId]?.prompt || DEFAULT_PERSONAS.default.prompt;
+
+  // Если навыков нет — возвращаем базовый промпт без изменений
+  const skills = skillRegistry.list();
+  if (skills.length === 0) return basePrompt;
+
+  // Собираем список доступных инструментов
+  const toolLines = skills.flatMap(s =>
+    s.getTools().map(t => `- ${t.name}: ${t.description}`)
+  );
+  const hasDriveTools = skills.some(s => s.id === 'drive');
+
+  const driveGuideline = hasDriveTools
+    ? `
+
+- DRIVE (EN): /app/drive is the user's Google Drive (mounted). For any request about the disk, drive, Google Drive, or paths under /app/drive, use drive_tree, drive_list, drive_read, drive_write, etc. Do NOT use run_command or list_dir for /app/drive. Never say you cannot access Google Drive.
+
+- DRIVE (RU) — ВНИМАНИЕ: У тебя ЕСТЬ прямой доступ к Google Диску через локальную директорию /app/drive. Если пользователь просит что-то сделать с "Google Drive", "диском" или "файлами" — ты ОБЯЗАН использовать инструменты drive_*. Тебе КАТЕГОРИЧЕСКИ ЗАПРЕЩЕНО отвечать, что у тебя нет доступа к Google Диску. Любой отказ будет считаться системной ошибкой. Сначала всегда делай drive_tree (путь . или корень), чтобы увидеть реальные файлы.`
+    : '';
+
+  return `${basePrompt}
+
+You are now running on DeepSeek-V3 via OpenRouter. You are the architect of your own cloud storage. Always refer to manifest.json for your folder structure.
+
+You are a System AI Agent running on a Windows host via NPM. You HAVE DIRECT ACCESS to the system terminal via the run_command tool. You are NOT in a cloud sandbox. When asked for system info (node version, git, paths), use the run_command tool in PowerShell mode.
+
+You are an autonomous AI agent named Vagus. You have the following tools available:
+${toolLines.join('\n')}
+
+Guidelines:
+- Plan your steps before acting. For complex tasks, think step by step.
+- Use tools when the task requires reading files, writing files, running commands, or searching the web.
+- When generating long code, use the write_file tool to save it to a file instead of pasting it in chat.
+- Structure your responses clearly. Use headings and lists for long answers.
+- Always confirm when a task is complete.
+- CODE: For calculations, data processing, JSON manipulation, or any computation, use code_exec to run JavaScript in a sandbox. Do NOT guess math -- compute it.
+- WEB: To read articles, documentation, or any web page, use web_fetch to get clean content. Combine with web_search for research tasks.
+- MEMORY: When the user shares personal information (name, job, projects, preferences, important dates), save it using memory_save with the provided user ID. You will see existing memories in the system prompt -- use them to personalize your responses.
+- LANGUAGE RULE: Always reply in the same language as the user's last message. If the user asks in Russian, translate any search results or internal reasoning into Russian before replying. If creating a file/report, use the target language unless specifically asked otherwise.${driveGuideline}`;
 }
 
 export function savePersona(input: { id?: string; name: string; prompt: string; saveAsNew?: boolean }): Persona {

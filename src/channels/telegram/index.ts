@@ -2,15 +2,17 @@
  * Telegram Channel Plugin
  *
  * Реализует ChannelPlugin для Telegram через grammY.
- * Вызывает routeMessage() и сам отправляет ответ через ctx.reply().
+ * Вызывает registry.handleMessage() и сам отправляет ответ через ctx.reply().
  */
 
 import { Bot } from 'grammy';
 import type { Context } from 'grammy';
 import type { ChannelPlugin, OutgoingMessage, IncomingMessage } from '../types.js';
 import type { ImageAttachment } from '../../ai/models.js';
-import { routeMessage } from '../router.js';
+import { channelRegistry } from '../registry.js';
 import { config } from '../../config/config.js';
+
+const TG_MAX_LENGTH = 4000; // margin below Telegram's 4096 limit
 
 export class TelegramChannel implements ChannelPlugin {
   readonly id = 'telegram';
@@ -51,7 +53,10 @@ export class TelegramChannel implements ChannelPlugin {
 
   async sendMessage(msg: OutgoingMessage): Promise<void> {
     if (!this.bot) return;
-    await this.bot.api.sendMessage(msg.chatId, msg.text);
+    const chunks = splitMessage(msg.text);
+    for (const chunk of chunks) {
+      await this.bot.api.sendMessage(msg.chatId, chunk);
+    }
   }
 
   // ============================================
@@ -62,12 +67,23 @@ export class TelegramChannel implements ChannelPlugin {
     if (config.security.telegramAccessMode !== 'allowlist') return true;
 
     const allowlist = config.security.telegramAllowlist;
-    if (allowlist.length === 0) return true; // пустой allowlist = все разрешены
+    if (allowlist.length === 0) return true;
 
     const userId = ctx.from?.id?.toString() ?? '';
     const username = ctx.from?.username ?? '';
 
     return allowlist.includes(userId) || allowlist.includes(`@${username}`);
+  }
+
+  // ============================================
+  // Message splitter
+  // ============================================
+
+  private async sendLongMessage(ctx: Context, text: string): Promise<void> {
+    const chunks = splitMessage(text);
+    for (const chunk of chunks) {
+      await ctx.reply(chunk);
+    }
   }
 
   // ============================================
@@ -80,11 +96,18 @@ export class TelegramChannel implements ChannelPlugin {
     const userId = ctx.from?.id?.toString();
     if (!text || !chatId || !userId) return;
 
-    // Проверка allowlist
     if (!this.isAllowed(ctx)) {
       await ctx.reply('🔒 Доступ запрещён. Обратитесь к администратору бота.');
       return;
     }
+
+    // Отправляем статусное сообщение, которое будем обновлять
+    const statusMsg = await ctx.reply('🤔 Думаю...');
+    const onStatus = async (status: string) => {
+      try {
+        await ctx.api.editMessageText(chatId!, statusMsg.message_id, `⏳ ${status}`);
+      } catch { /* ignore edit failures */ }
+    };
 
     const incoming: IncomingMessage = {
       channelId: this.id,
@@ -94,11 +117,15 @@ export class TelegramChannel implements ChannelPlugin {
       firstName: ctx.from?.first_name,
       lastName: ctx.from?.last_name,
       text,
+      onStatus,
     };
 
-    const result = await routeMessage(incoming);
+    const result = await channelRegistry.handleMessage(incoming);
+
+    // Удаляем статусное сообщение
+    try { await ctx.api.deleteMessage(chatId!, statusMsg.message_id); } catch {}
+
     if (result) {
-      // Формируем ответ с метаданными для Telegram
       let reply = `🤖 ${result.text}`;
       if (result.contextUsed && result.contextUsed > 0) {
         reply += `\n\n📚 Контекст: ${result.contextUsed} предыдущих сообщений`;
@@ -109,7 +136,7 @@ export class TelegramChannel implements ChannelPlugin {
       if (result.model) {
         reply += `\n(Модель: ${result.model})`;
       }
-      await ctx.reply(reply);
+      await this.sendLongMessage(ctx, reply);
     }
   }
 
@@ -119,7 +146,6 @@ export class TelegramChannel implements ChannelPlugin {
     const userId = ctx.from?.id?.toString();
     if (!photo?.length || !chatId || !userId) return;
 
-    // Проверка allowlist
     if (!this.isAllowed(ctx)) {
       await ctx.reply('🔒 Доступ запрещён. Обратитесь к администратору бота.');
       return;
@@ -128,9 +154,15 @@ export class TelegramChannel implements ChannelPlugin {
     const caption = ctx.message?.caption ?? '';
 
     try {
-      // Скачиваем наибольшее фото
       const largest = photo[photo.length - 1];
       const imageAttachment = await this.downloadPhoto(largest.file_id);
+
+      const statusMsg = await ctx.reply('🤔 Смотрю изображение...');
+      const onStatus = async (status: string) => {
+        try {
+          await ctx.api.editMessageText(chatId!, statusMsg.message_id, `⏳ ${status}`);
+        } catch { /* ignore */ }
+      };
 
       const incoming: IncomingMessage = {
         channelId: this.id,
@@ -141,10 +173,13 @@ export class TelegramChannel implements ChannelPlugin {
         lastName: ctx.from?.last_name,
         text: caption,
         images: [imageAttachment],
+        onStatus,
       };
 
-      await ctx.reply('🤔 Смотрю изображение...');
-      const result = await routeMessage(incoming);
+      const result = await channelRegistry.handleMessage(incoming);
+
+      try { await ctx.api.deleteMessage(chatId!, statusMsg.message_id); } catch {}
+
       if (result) {
         let reply = `🤖 ${result.text}`;
         if (result.contextUsed && result.contextUsed > 0) {
@@ -152,7 +187,7 @@ export class TelegramChannel implements ChannelPlugin {
         }
         if (result.tokensUsed) reply += `\n💡 Токенов: ${result.tokensUsed}`;
         if (result.model) reply += `\n(Модель: ${result.model})`;
-        await ctx.reply(reply);
+        await this.sendLongMessage(ctx, reply);
       }
     } catch (error) {
       console.error('❌ Ошибка обработки фото:', error);
@@ -175,4 +210,36 @@ export class TelegramChannel implements ChannelPlugin {
     const mediaType = file.file_path?.toLowerCase().endsWith('.png') ? 'image/png' : 'image/jpeg';
     return { data: base64, mediaType };
   }
+}
+
+// ============================================
+// Утилита: разбивка длинного текста
+// ============================================
+
+function splitMessage(text: string): string[] {
+  if (text.length <= TG_MAX_LENGTH) return [text];
+
+  const chunks: string[] = [];
+  let remaining = text;
+
+  while (remaining.length > 0) {
+    if (remaining.length <= TG_MAX_LENGTH) {
+      chunks.push(remaining);
+      break;
+    }
+
+    // Ищем точку разрыва: сначала двойной перенос, потом одинарный, потом hard cut
+    let cutIndex = remaining.lastIndexOf('\n\n', TG_MAX_LENGTH);
+    if (cutIndex < TG_MAX_LENGTH * 0.3) {
+      cutIndex = remaining.lastIndexOf('\n', TG_MAX_LENGTH);
+    }
+    if (cutIndex < TG_MAX_LENGTH * 0.3) {
+      cutIndex = TG_MAX_LENGTH;
+    }
+
+    chunks.push(remaining.slice(0, cutIndex));
+    remaining = remaining.slice(cutIndex).trimStart();
+  }
+
+  return chunks;
 }

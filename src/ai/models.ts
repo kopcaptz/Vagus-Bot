@@ -1,15 +1,14 @@
-import { getModelConfig, type ModelConfig } from '../config/config.js';
+import { getModelConfig, getOpenRouterFallbackConfig, config, type ModelConfig } from '../config/config.js';
 import { getSystemPrompt } from '../config/personas.js';
 import type { ContextMessage } from '../db/context.js';
 import { skillRegistry } from '../skills/registry.js';
-
-const MAX_TOOL_ITERATIONS = 5;
+import { fetchWithRetry } from './retry.js';
 
 export interface AIResponse {
   text: string;
   model: string;
   provider: string;
-  tokensUsed?: number; // Количество использованных токенов (если доступно)
+  tokensUsed?: number;
 }
 
 /** Вложение изображения для Vision: base64-данные и MIME-тип */
@@ -18,17 +17,19 @@ export interface ImageAttachment {
   mediaType: string; // e.g. image/jpeg, image/png
 }
 
+// ============================================
+// Главная точка входа с failover
+// ============================================
+
 /**
- * Обработать сообщение с AI, используя контекст и опционально изображения
- *
- * @param message - Текущее сообщение пользователя
- * @param contextMessages - Массив сообщений для контекста (опционально)
- * @param imageAttachments - Изображения для анализа (Vision)
+ * Обработать сообщение с AI.
+ * При ошибке основного провайдера — автоматический failover на альтернативный.
  */
 export async function processWithAI(
   message: string,
   contextMessages?: ContextMessage[],
-  imageAttachments?: ImageAttachment[]
+  imageAttachments?: ImageAttachment[],
+  onStatus?: (status: string) => Promise<void>,
 ): Promise<AIResponse | null> {
   const modelConfig = getModelConfig();
 
@@ -37,24 +38,56 @@ export async function processWithAI(
   }
 
   try {
-    switch (modelConfig.provider) {
-      case 'openai':
-        return await processWithOpenAI(message, modelConfig, contextMessages, imageAttachments);
-      case 'anthropic':
-        return await processWithAnthropic(message, modelConfig, contextMessages, imageAttachments);
-      default:
-        return null;
-    }
+    return await callProvider(modelConfig, message, contextMessages, imageAttachments, onStatus);
   } catch (error) {
-    console.error('❌ Ошибка AI обработки:', error);
+    // Попытка failover на альтернативный провайдер
+    const fallback = getFallbackConfig(modelConfig);
+    if (fallback) {
+      console.warn(`⚠️ ${modelConfig.provider} failed, trying ${fallback.provider}...`);
+      await onStatus?.(`Переключаюсь на ${fallback.provider}...`);
+      try {
+        return await callProvider(fallback, message, contextMessages, imageAttachments, onStatus);
+      } catch (fallbackError) {
+        console.error('❌ Failover тоже не удался:', fallbackError);
+        throw error; // Бросаем оригинальную ошибку
+      }
+    }
     throw error;
   }
 }
 
+/** Вызвать конкретного провайдера */
+async function callProvider(
+  modelConfig: ModelConfig,
+  message: string,
+  contextMessages?: ContextMessage[],
+  imageAttachments?: ImageAttachment[],
+  onStatus?: (status: string) => Promise<void>,
+): Promise<AIResponse> {
+  switch (modelConfig.provider) {
+    case 'openai':
+      return await processWithOpenAI(message, modelConfig, contextMessages, imageAttachments, onStatus);
+    case 'anthropic':
+      return await processWithAnthropic(message, modelConfig, contextMessages, imageAttachments, onStatus);
+    default:
+      throw new Error(`Неизвестный провайдер: ${modelConfig.provider}`);
+  }
+}
+
+/** Получить fallback-конфиг: при сбое любого OpenRouter-тира — BUDGET (DeepSeek). */
+function getFallbackConfig(current: ModelConfig): ModelConfig | null {
+  if (current.baseUrl) return getOpenRouterFallbackConfig();
+  return null;
+}
+
+// ============================================
+// OpenAI
+// ============================================
+
 type OpenAIMessage =
   | { role: string; content: string | Array<{ type: 'text'; text: string } | { type: 'image_url'; image_url: { url: string } }> }
   | { role: 'assistant'; content: string; tool_calls: Array<{ id: string; type: 'function'; function: { name: string; arguments: string } }> }
-  | { role: 'user'; content: Array<{ type: 'tool_result'; tool_call_id: string; content: string }> };
+  | { role: 'tool'; tool_call_id: string; content: string };
 
 function buildOpenAIUserContent(message: string, imageAttachments?: ImageAttachment[]): string | Array<{ type: 'text'; text: string } | { type: 'image_url'; image_url: { url: string } }> {
   if (!imageAttachments || imageAttachments.length === 0) {
@@ -75,16 +108,17 @@ function buildOpenAIUserContent(message: string, imageAttachments?: ImageAttachm
 
 async function processWithOpenAI(
   message: string,
-  config: ModelConfig,
+  modelConfig: ModelConfig,
   contextMessages?: ContextMessage[],
-  imageAttachments?: ImageAttachment[]
+  imageAttachments?: ImageAttachment[],
+  onStatus?: (status: string) => Promise<void>,
 ): Promise<AIResponse> {
-  if (!config.apiKey) {
+  if (!modelConfig.apiKey) {
     throw new Error('OpenAI API ключ не установлен');
   }
 
   const hasImages = imageAttachments && imageAttachments.length > 0;
-  const model = hasImages && config.model === 'gpt-3.5-turbo' ? 'gpt-4o' : config.model;
+  const model = hasImages && modelConfig.model === 'gpt-3.5-turbo' ? 'gpt-4o' : modelConfig.model;
 
   let messages: OpenAIMessage[] = [];
 
@@ -114,35 +148,42 @@ async function processWithOpenAI(
     const body: Record<string, unknown> = {
       model,
       messages,
-      max_tokens: 500,
+      max_tokens: config.ai.maxTokens,
       temperature: 0.7,
     };
-    if (tools && iterations === 0) body.tools = tools;
+    if (tools) body.tools = tools;
 
-    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+    const baseUrl = (modelConfig.baseUrl || 'https://api.openai.com/v1').replace(/\/$/, '');
+    const url = `${baseUrl}/chat/completions`;
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${modelConfig.apiKey}`,
+    };
+    if (modelConfig.baseUrl) {
+      headers['HTTP-Referer'] = config.ai.siteUrl;
+      headers['X-Title'] = config.ai.siteName;
+    }
+    const response = await fetchWithRetry(url, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${config.apiKey}`,
-      },
+      headers,
       body: JSON.stringify(body),
     });
 
     if (!response.ok) {
-      const error = await response.json().catch(() => ({ error: 'Unknown error' }));
+      const error = await response.json().catch(() => ({ error: 'Unknown error' })) as any;
       const errorMessage = error?.error?.message || JSON.stringify(error);
       if (error?.error?.code === 'invalid_api_key') {
-        throw new Error('❌ Неверный API ключ OpenAI. Проверьте ключ в файле .env. Получите новый ключ на https://platform.openai.com/account/api-keys');
+        throw new Error('❌ Неверный API ключ OpenAI. Проверьте ключ в файле .env.');
       }
       throw new Error(`OpenAI API error: ${errorMessage}`);
     }
 
-    const data = await response.json();
+    const data = await response.json() as any;
     const msg = data.choices?.[0]?.message;
     totalTokens += data.usage?.total_tokens ?? 0;
 
     const toolCalls = msg?.tool_calls;
-    if (tools && Array.isArray(toolCalls) && toolCalls.length > 0 && iterations < MAX_TOOL_ITERATIONS) {
+    if (tools && Array.isArray(toolCalls) && toolCalls.length > 0 && iterations < config.ai.maxIterations) {
       messages.push({
         role: 'assistant',
         content: msg.content ?? '',
@@ -152,7 +193,6 @@ async function processWithOpenAI(
           function: { name: tc.function?.name ?? '', arguments: tc.function?.arguments ?? '{}' },
         })),
       });
-      const toolResults: Array<{ type: 'tool_result'; tool_call_id: string; content: string }> = [];
       for (const tc of toolCalls) {
         const name = tc.function?.name ?? '';
         const argsJson = tc.function?.arguments ?? '{}';
@@ -162,22 +202,27 @@ async function processWithOpenAI(
         } catch {
           args = {};
         }
+        await onStatus?.(`Использую ${name}...`);
         const result = await skillRegistry.executeTool(name, args);
-        toolResults.push({ type: 'tool_result', tool_call_id: tc.id, content: result });
+        messages.push({ role: 'tool', tool_call_id: tc.id, content: result });
       }
-      messages.push({ role: 'user', content: toolResults });
       iterations++;
+      await onStatus?.(`Анализирую результаты (итерация ${iterations})...`);
       continue;
     }
 
     return {
       text: msg?.content ?? 'Нет ответа',
-      model: data.model ?? config.model,
+      model: data.model ?? modelConfig.model,
       provider: 'openai',
       tokensUsed: totalTokens || data.usage?.total_tokens,
     };
   }
 }
+
+// ============================================
+// Anthropic
+// ============================================
 
 type AnthropicContentBlock =
   | { type: 'text'; text: string }
@@ -205,11 +250,12 @@ function buildAnthropicUserContent(message: string, imageAttachments?: ImageAtta
 
 async function processWithAnthropic(
   message: string,
-  config: ModelConfig,
+  modelConfig: ModelConfig,
   contextMessages?: ContextMessage[],
-  imageAttachments?: ImageAttachment[]
+  imageAttachments?: ImageAttachment[],
+  onStatus?: (status: string) => Promise<void>,
 ): Promise<AIResponse> {
-  if (!config.apiKey) {
+  if (!modelConfig.apiKey) {
     throw new Error('Anthropic API ключ не установлен');
   }
 
@@ -245,50 +291,52 @@ async function processWithAnthropic(
 
   while (true) {
     const requestBody: Record<string, unknown> = {
-      model: config.model,
-      max_tokens: 500,
+      model: modelConfig.model,
+      max_tokens: config.ai.maxTokens,
       messages,
     };
     if (systemPrompt) requestBody.system = systemPrompt;
-    if (tools && iterations === 0) requestBody.tools = tools;
+    if (tools) requestBody.tools = tools;
 
-    const response = await fetch('https://api.anthropic.com/v1/messages', {
+    const response = await fetchWithRetry('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'x-api-key': config.apiKey,
+        'x-api-key': modelConfig.apiKey,
         'anthropic-version': '2023-06-01',
       },
       body: JSON.stringify(requestBody),
     });
 
     if (!response.ok) {
-      const error = await response.json().catch(() => ({ error: 'Unknown error' }));
+      const error = await response.json().catch(() => ({ error: 'Unknown error' })) as any;
       throw new Error(`Anthropic API error: ${JSON.stringify(error)}`);
     }
 
-    const data = await response.json();
+    const data = await response.json() as any;
     const content = data.content ?? [];
     totalInputTokens += data.usage?.input_tokens ?? 0;
     totalOutputTokens += data.usage?.output_tokens ?? 0;
 
     const toolUses = content.filter((b: AnthropicContentBlock) => b.type === 'tool_use');
-    if (tools && toolUses.length > 0 && iterations < MAX_TOOL_ITERATIONS) {
+    if (tools && toolUses.length > 0 && iterations < config.ai.maxIterations) {
       messages.push({ role: 'assistant', content });
       const toolResults: AnthropicContentBlock[] = [];
       for (const tu of toolUses as Array<{ type: 'tool_use'; id: string; name: string; input: Record<string, unknown> }>) {
+        await onStatus?.(`Использую ${tu.name}...`);
         const result = await skillRegistry.executeTool(tu.name, tu.input ?? {});
         toolResults.push({ type: 'tool_result', tool_use_id: tu.id, content: result });
       }
       messages.push({ role: 'user', content: toolResults });
       iterations++;
+      await onStatus?.(`Анализирую результаты (итерация ${iterations})...`);
       continue;
     }
 
     const textBlock = content.find((b: AnthropicContentBlock) => b.type === 'text');
     return {
       text: textBlock?.type === 'text' ? textBlock.text : 'Нет ответа',
-      model: config.model,
+      model: modelConfig.model,
       provider: 'anthropic',
       tokensUsed: totalInputTokens + totalOutputTokens || undefined,
     };

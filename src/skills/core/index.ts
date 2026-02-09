@@ -24,6 +24,7 @@ const TEXT_EXTENSIONS = new Set([
 ]);
 
 const COMMAND_BLOCKLIST: RegExp[] = [
+  // Linux / Unix
   /\brm\s+-rf\s+[/]/,
   /\brm\s+-rf\s+[/][/]/,
   /\bsudo\b/,
@@ -36,6 +37,18 @@ const COMMAND_BLOCKLIST: RegExp[] = [
   /\:\(\)\s*\{\s*:\s*\}\s*;\s*:/,
   /\bwget\s+.*\s+\|\s*sh\b/,
   /\bcurl\s+.*\s+\|\s*sh\b/,
+  // Windows / CMD
+  /\brd\s+\/s/i,
+  /\bdel\s+\/s/i,
+  /\bformat\b/i,
+  /\bnet\s+user\b/i,
+  /\bnet\s+localgroup\b/i,
+  /\breg\s+delete\b/i,
+  /\btaskkill\s+\/f/i,
+  // PowerShell
+  /\bStop-Process\b/i,
+  /\bRemove-Item\s+.*-Recurse\b/i,
+  /\bSet-ExecutionPolicy\b/i,
 ];
 
 // ============================================
@@ -139,18 +152,32 @@ function runCommandSafe(command: string): string {
   if (isCommandBlocked(command)) {
     return 'Ошибка: команда запрещена из соображений безопасности.';
   }
+  const cwd = getWorkspaceRoot() || process.cwd();
   const timeout = config.tools.commandTimeoutMs;
+  console.log(`[Terminal] Executing: ${command} in ${cwd}`);
   try {
     const result = execSync(command, {
       encoding: 'utf-8',
       timeout,
       maxBuffer: 1024 * 1024,
-      cwd: getWorkspaceRoot() || process.cwd(),
+      cwd,
+      shell: 'powershell.exe',
     });
     return (result ?? '').trim() || '(команда выполнена, вывод пуст)';
   } catch (err: unknown) {
+    const execErr = err as NodeJS.ExecException | undefined;
+    // Node may set killed/signal when timeout kills the process; verify in your env (PowerShell/Windows).
+    const isTimeout =
+      execErr?.killed === true ||
+      execErr?.signal === 'SIGTERM' ||
+      (typeof execErr?.code === 'string' && execErr.code === 'ETIMEDOUT');
+    if (isTimeout) {
+      return 'Ошибка: превышено время выполнения команды (timeout).';
+    }
     const msg = err instanceof Error ? err.message : String(err);
-    return `Ошибка выполнения: ${msg}`;
+    const stderr = execErr?.stderr != null ? String(execErr.stderr).trim() : '';
+    const detail = stderr ? `${msg}${stderr ? ` | ${stderr}` : ''}` : msg;
+    return `Ошибка выполнения команды: ${detail}`;
   }
 }
 
@@ -200,7 +227,7 @@ export class CoreSkill implements Skill {
       },
       {
         name: 'run_command',
-        description: 'Выполнить одну команду в терминале (в рабочей директории). Опасные команды (rm -rf /, sudo и т.п.) запрещены.',
+        description: 'Executes real PowerShell commands on the host Windows machine (working directory: WORKSPACE_ROOT). Use for system info (node -v, git, paths), builds, scripts. Dangerous commands are blocked (e.g. format, rd /s, sudo).',
         parameters: {
           type: 'object',
           properties: {

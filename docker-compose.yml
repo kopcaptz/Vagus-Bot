@@ -1,0 +1,21 @@
+# Drive mount: create C:\vagus_data on Windows so the bind mount can attach. Files there appear at /app/drive.
+services:
+  vagus-bot:
+    build: .
+    restart: unless-stopped
+    privileged: true
+    ports:
+      - "${PORT:-3000}:${PORT:-3000}"
+    volumes:
+      - ./data:/app/data
+      - ./workspace:/app/workspace
+      - type: bind
+        source: C:/vagus_data
+        target: /app/drive
+    env_file:
+      - .env
+    environment:
+      - NODE_ENV=production
+      - DRIVE_ROOT=/app/drive
+      - DEFAULT_MODEL=openai-gpt-4
+    command: ["sh", "-c", "echo '=== /app/drive mount check ===' && ls -la /app/drive 2>&1 && echo '=== end mount check ===' && exec node dist/index.js"]

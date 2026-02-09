@@ -289,7 +289,7 @@ async function deletePersona() {
     status.innerHTML = '<p>Удаляю...</p>';
 
     try {
-        const response = await fetch(`/api/personas/${encodeURIComponent(id)}`, { method: 'DELETE' });
+        const response = await apiFetch(`/api/personas/${encodeURIComponent(id)}`, { method: 'DELETE' });
         const data = await response.json();
         if (data.success) {
             status.innerHTML = '<p class="success">✅ Удалено</p>';
@@ -426,7 +426,7 @@ async function loadHistory(offset = 0) {
     pagination.innerHTML = '';
     
     try {
-        const response = await fetch(`/api/history/${encodeURIComponent(chatId)}?${params.toString()}`);
+        const response = await apiFetch(`/api/history/${encodeURIComponent(chatId)}?${params.toString()}`);
         const data = await response.json();
         
         if (data.success) {
@@ -501,7 +501,7 @@ async function clearCurrentChat() {
     if (!confirm('Вы уверены? Это удалит ВСЮ историю этого чата.')) return;
     
     try {
-        const response = await fetch(`/api/history/${encodeURIComponent(chatId)}`, { method: 'DELETE' });
+        const response = await apiFetch(`/api/history/${encodeURIComponent(chatId)}`, { method: 'DELETE' });
         const data = await response.json();
         if (data.success) {
             loadHistory(0);
@@ -602,7 +602,7 @@ async function previewContext() {
     previewDiv.innerHTML = '<p>Загрузка...</p>';
     
     try {
-        const response = await fetch(`/api/context/${chatId}`);
+        const response = await apiFetch(`/api/context/${chatId}`);
         const data = await response.json();
         
         if (data.success) {
