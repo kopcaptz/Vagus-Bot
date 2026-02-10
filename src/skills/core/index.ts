@@ -30,11 +30,10 @@ const COMMAND_BLOCKLIST: RegExp[] = [
   /\bsudo\b/,
   /\bmkfs\./,
   /\bdd\s+if=/,
-  />\s*\/dev\/(sd|nvme|hd)/,
-  /\|\s*\/dev\/(sd|nvme|hd)/,
+  /\/dev\/(sd[a-z]|nvme[0-9]n[0-9]|hd[a-z])/,
   new RegExp('\\bchmod\\s+[0-7]{3,4}\\s+/'),
   new RegExp('\\bchown\\s+[^\\s]+\\s+/'),
-  /\:\(\)\s*\{\s*:\s*\}\s*;\s*:/,
+  /\:\(\)\s*\{\s*[:|& \t\n}]+\s*\}\s*;\s*:/,
   /\bwget\s+.*\s+\|\s*sh\b/,
   /\bcurl\s+.*\s+\|\s*sh\b/,
   // Windows / CMD
@@ -80,7 +79,7 @@ function resolvePath(relativePath: string): string | null {
   }
 }
 
-function isCommandBlocked(command: string): boolean {
+export function isCommandBlocked(command: string): boolean {
   return COMMAND_BLOCKLIST.some(re => re.test(command.trim()));
 }
 
