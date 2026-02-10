@@ -18,7 +18,13 @@ async function apiFetch(url, options = {}) {
     }
     const response = await fetch(url, options);
     if (response.status === 401) {
-        const newToken = prompt('🔒 Требуется авторизация.\n\nВведите ADMIN_TOKEN:');
+        let body = {};
+        try { body = await response.clone().json(); } catch (_) {}
+        if (body.error && body.error.includes('not configured')) {
+            alert('🔒 ' + body.error);
+            return response;
+        }
+        const newToken = prompt('🔒 Требуется авторизация.\n\nВведите ADMIN_TOKEN (из .env):');
         if (newToken) {
             setAdminToken(newToken);
             options.headers = options.headers || {};
@@ -36,7 +42,13 @@ async function apiFetchMultipart(url, formData) {
     if (token) headers['X-Admin-Token'] = token;
     const response = await fetch(url, { method: 'POST', headers, body: formData });
     if (response.status === 401) {
-        const newToken = prompt('🔒 Требуется авторизация.\n\nВведите ADMIN_TOKEN:');
+        let body = {};
+        try { body = await response.clone().json(); } catch (_) {}
+        if (body.error && body.error.includes('not configured')) {
+            alert('🔒 ' + body.error);
+            return response;
+        }
+        const newToken = prompt('🔒 Требуется авторизация.\n\nВведите ADMIN_TOKEN (из .env):');
         if (newToken) {
             setAdminToken(newToken);
             headers['X-Admin-Token'] = newToken;
