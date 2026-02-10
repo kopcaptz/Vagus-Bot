@@ -225,17 +225,12 @@ export class CoreSkill implements Skill {
           },
         },
       },
-      {
-        name: 'run_command',
-        description: 'Executes real PowerShell commands on the host Windows machine (working directory: WORKSPACE_ROOT). Use for system info (node -v, git, paths), builds, scripts. Dangerous commands are blocked (e.g. format, rd /s, sudo).',
-        parameters: {
-          type: 'object',
-          properties: {
-            command: { type: 'string', description: 'Команда для выполнения (одна строка)' },
-          },
-          required: ['command'],
-        },
-      },
+      // run_command отключён: для работы с терминалом используйте только system_cli_gateway (безопасный шлюз).
+      // {
+      //   name: 'run_command',
+      //   description: 'Executes real PowerShell commands...',
+      //   parameters: { ... },
+      // },
     ];
   }
 
@@ -259,10 +254,8 @@ export class CoreSkill implements Skill {
         return listDirSafe(p);
       }
 
-      case 'run_command': {
-        const cmd = typeof args.command === 'string' ? args.command : String(args.command ?? '');
-        return runCommandSafe(cmd);
-      }
+      // case 'run_command': отключён — используйте system_cli_gateway
+      // case 'run_command': { return runCommandSafe(...); }
 
       default:
         return `Неизвестный инструмент в CoreSkill: ${toolName}`;

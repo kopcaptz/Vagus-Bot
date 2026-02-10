@@ -119,6 +119,7 @@ export function getSystemPrompt(): string {
     s.getTools().map(t => `- ${t.name}: ${t.description}`)
   );
   const hasDriveTools = skills.some(s => s.id === 'drive');
+  const hasCliGateway = skills.some(s => s.id === 'cli-gateway');
 
   const driveGuideline = hasDriveTools
     ? `
