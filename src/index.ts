@@ -10,6 +10,7 @@ import { WebSearchSkill } from './skills/web-search/index.js';
 import { MemorySkill } from './skills/memory/index.js';
 import { SandboxSkill } from './skills/sandbox/index.js';
 import { BrowserSkill } from './skills/browser/index.js';
+import { CliGatewaySkill } from './skills/cli-gateway/index.js';
 import { startWebServer } from './server/web.js';
 import { config, ensureDefaultModel, getSelectedModel } from './config/config.js';
 import { initDatabase } from './db/database.js';
@@ -52,6 +53,7 @@ async function main() {
     skillRegistry.register(new CoreSkill());
     skillRegistry.register(new SandboxSkill());
     skillRegistry.register(new BrowserSkill());
+    skillRegistry.register(new CliGatewaySkill());
     if (process.env.TAVILY_API_KEY) {
       skillRegistry.register(new WebSearchSkill());
     }
