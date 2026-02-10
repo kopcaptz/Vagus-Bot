@@ -43,8 +43,6 @@ export const DEFAULT_POLICY: PolicyConfig = {
   workingDefaultDays: 14,
 };
 
-export type MemoryBlockType = 'profile' | 'working' | 'archive';
-
 export interface ValidationResult {
   ok: boolean;
   reason?: string; // length | question | command | secret | duplicate | semantic_duplicate
