@@ -1,3 +1,5 @@
+import { initDatabase } from './src/db/database.ts';
+initDatabase();
 // Тестирование функций базы данных
 import { saveMessage, createOrUpdateUser, createOrUpdateSession, getMessageHistory, getDatabaseStats, getAllUsers } from './src/db/queries.ts';
 

@@ -37,13 +37,19 @@ export async function routeMessage(msg: IncomingMessage): Promise<MessageResult 
   console.log(`📨 [${msg.channelId}] Сообщение от ${firstName || username || userId}: ${text || '[изображение]'}`);
 
   // --- Сохраняем пользователя и сессию ---
-  createOrUpdateUser({
-    user_id: userId,
-    username,
-    first_name: firstName,
-    last_name: lastName,
+  setImmediate(() => {
+    try {
+      createOrUpdateUser({
+        user_id: userId,
+        username,
+        first_name: firstName,
+        last_name: lastName,
+      });
+      createOrUpdateSession({ chat_id: chatId, user_id: userId });
+    } catch (error) {
+      console.error('❌ Ошибка сохранения пользователя/сессии:', error);
+    }
   });
-  createOrUpdateSession({ chat_id: chatId, user_id: userId });
 
   // --- Сохраняем входящее сообщение ---
   const messageTextForDb = images && images.length > 0
