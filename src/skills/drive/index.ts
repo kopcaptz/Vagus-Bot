@@ -17,6 +17,7 @@ import type { Skill, ToolDefinition } from '../types.js';
 const MAX_DIR_ENTRIES = 200;
 const TREE_MAX_DEPTH = 4;
 const ENCODING = 'utf-8' as const;
+const MAX_FILE_SIZE = 512 * 1024; // 512 KB
 
 const TEXT_EXTENSIONS = new Set([
   '.txt', '.md', '.json', '.yml', '.yaml', '.xml', '.html', '.css', '.js', '.ts', '.mjs', '.cjs',
@@ -216,6 +217,9 @@ function driveRead(filePath: string): string {
 
   if (!isTextFile(resolved)) {
     return `Binary file [${formatSize(stat.size)}]`;
+  }
+  if (stat.size > MAX_FILE_SIZE) {
+    return `File too large [${formatSize(stat.size)}]. Max allowed: ${formatSize(MAX_FILE_SIZE)}`;
   }
   try {
     return fs.readFileSync(resolved, { encoding: ENCODING });
