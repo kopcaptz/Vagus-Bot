@@ -16,7 +16,7 @@ import {
   saveMessage,
   createOrUpdateUser,
   createOrUpdateSession,
-  getRecentMessages,
+  getMessageHistory,
   clearChatHistory,
 } from '../db/queries.js';
 import { getContextForAI } from '../db/context.js';
@@ -127,7 +127,7 @@ function handleCommand(text: string, chatId: string): string | null {
   }
 
   if (text.startsWith('/history')) {
-    const history = getRecentMessages(chatId, 5);
+    const history = getMessageHistory(chatId, 5);
     if (history.length === 0) return 'История сообщений пуста.';
 
     let result = '📜 Последние 5 сообщений:\n\n';

@@ -1,4 +1,4 @@
-import { getRecentMessages } from './queries.js';
+import { getMessageHistory } from './queries.js';
 import type { Message } from './types.js';
 import { getContextConfig } from '../config/context.js';
 import { getSystemPrompt } from '../config/personas.js';
@@ -35,7 +35,7 @@ export async function getContextForAI(chatId: string, currentMessage?: string, u
   }
 
   // Получаем последние сообщения из БД
-  const recentMessages = getRecentMessages(chatId, contextConfig.maxMessages + 1); // +1 чтобы потом исключить текущее
+  const recentMessages = getMessageHistory(chatId, contextConfig.maxMessages + 1); // +1 чтобы потом исключить текущее
   console.log(`📚 Найдено ${recentMessages.length} сообщений в истории для чата ${chatId}`);
   
   // Фильтруем сообщения (исключаем текущее, если оно есть)
@@ -212,7 +212,7 @@ export function getContextStats(chatId: string): {
   estimatedTokens: number;
 } {
   const contextConfig = getContextConfig();
-  const recentMessages = getRecentMessages(chatId, contextConfig.maxMessages);
+  const recentMessages = getMessageHistory(chatId, contextConfig.maxMessages);
   
   // Приблизительный подсчет токенов
   function estimateTokens(text: string): number {
