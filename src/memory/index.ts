@@ -100,7 +100,7 @@ export async function saveFact(
     userMeta = readUserMeta(userId);
   }
 
-  appendFact(userId, fact);
+  await appendFact(userId, fact);
   refreshUserMetaCounts(userId);
 
   console.log(`[Memory v2] Saved [${userId}] ${factId} type=${type} imp=${importance}`);
