@@ -9,25 +9,11 @@ import { Readability } from '@mozilla/readability';
 import { parseHTML } from 'linkedom';
 import TurndownService from 'turndown';
 import type { Skill, ToolDefinition } from '../types.js';
+import { safeFetch } from './ssrf.js';
 
 const MAX_HTML_SIZE = 2 * 1024 * 1024; // 2 MB
 const MAX_OUTPUT = 10000; // символов в ответе
 const FETCH_TIMEOUT = 15000; // 15 секунд
-
-// SSRF-защита: блокируем приватные IP
-const PRIVATE_IP_PATTERNS = [
-  /^https?:\/\/localhost/i,
-  /^https?:\/\/127\./,
-  /^https?:\/\/0\./,
-  /^https?:\/\/10\./,
-  /^https?:\/\/172\.(1[6-9]|2\d|3[01])\./,
-  /^https?:\/\/192\.168\./,
-  /^https?:\/\/\[::1\]/,
-];
-
-function isPrivateUrl(url: string): boolean {
-  return PRIVATE_IP_PATTERNS.some(re => re.test(url));
-}
 
 export class BrowserSkill implements Skill {
   readonly id = 'browser';
@@ -65,28 +51,25 @@ export class BrowserSkill implements Skill {
       return `Ошибка: некорректный URL: ${url}`;
     }
 
-    // SSRF-защита
-    if (isPrivateUrl(url)) {
-      return 'Ошибка: доступ к локальным адресам запрещён.';
-    }
-
     try {
       return await this.fetchAndParse(url);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
+      if (msg.includes('forbidden') || msg.includes('Access to private IP')) {
+        return `Ошибка: доступ к локальным адресам запрещён (${msg}).`;
+      }
       return `Ошибка загрузки: ${msg}`;
     }
   }
 
   private async fetchAndParse(url: string): Promise<string> {
-    // Загрузка HTML
-    const response = await fetch(url, {
+    // Загрузка HTML с защитой от SSRF
+    const response = await safeFetch(url, {
       headers: {
         'User-Agent': 'VagusBot/1.0 (Readability)',
         'Accept': 'text/html,application/xhtml+xml,*/*',
       },
       signal: AbortSignal.timeout(FETCH_TIMEOUT),
-      redirect: 'follow',
     });
 
     if (!response.ok) {
