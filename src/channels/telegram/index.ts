@@ -86,7 +86,13 @@ export class TelegramChannel implements ChannelPlugin {
     const userId = ctx.from?.id?.toString() ?? '';
     const username = ctx.from?.username ?? '';
 
-    return owner === userId || owner === `@${username}`;
+    // user_id — всегда точное совпадение
+    if (owner === userId) return true;
+    // @username — case-insensitive (Telegram usernames не чувствительны к регистру)
+    if (owner.startsWith('@')) {
+      return owner.toLowerCase() === `@${username}`.toLowerCase();
+    }
+    return false;
   }
 
   private getGuestReply(): string {
