@@ -47,6 +47,9 @@ async function main() {
   console.log(`\n🔒 Безопасность:`);
   console.log(`   Web-панель: ${config.security.adminToken ? '✅ Защищена (ADMIN_TOKEN)' : '⚠️ Открыта (ADMIN_TOKEN не задан)'}`);
   console.log(`   Telegram: ${config.security.telegramAccessMode === 'allowlist' ? `✅ Allowlist (${config.security.telegramAllowlist.length} записей)` : '🌐 Открыт (open)'}`);
+  if (config.security.telegramOwner) {
+    console.log(`   Telegram хозяин: ✅ ${config.security.telegramOwner} (гости: ${config.security.telegramGuestMode})`);
+  }
 
   // Skills
   // Memory — всегда активна (core functionality)

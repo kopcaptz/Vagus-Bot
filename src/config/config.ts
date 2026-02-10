@@ -59,6 +59,13 @@ export const config = {
     telegramAllowlist: (getEnvValue('TELEGRAM_ALLOWLIST') || '')
       .split(',').map(s => s.trim()).filter(Boolean),
     telegramAccessMode: (getEnvValue('TELEGRAM_ACCESS_MODE', 'open') as 'open' | 'allowlist'),
+    /** Хозяин бота: user_id или @username. Если задан — только он получает полный ответ; остальные — гости. */
+    telegramOwner: getEnvValue('TELEGRAM_OWNER').trim() || null,
+    /** Режим для гостей: block (отказ), greeting (кастомное приветствие) */
+    telegramGuestMode: (getEnvValue('TELEGRAM_GUEST_MODE', 'block') as 'block' | 'greeting'),
+    /** Сообщение для гостей при режиме greeting */
+    telegramGuestMessage: getEnvValue('TELEGRAM_GUEST_MESSAGE') ||
+      '👋 Привет! Я личный бот. Мой хозяин сейчас занят. Оставьте сообщение — он прочитает позже.',
   },
   drive: {
     // Windows: normalize so path works with fs (handles "Мой диск" space); exact path as in Explorer
