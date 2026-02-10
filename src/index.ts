@@ -45,7 +45,7 @@ async function main() {
 
   // Безопасность
   console.log(`\n🔒 Безопасность:`);
-  console.log(`   Web-панель: ${config.security.adminToken ? '✅ Защищена (ADMIN_TOKEN)' : '⚠️ Открыта (ADMIN_TOKEN не задан)'}`);
+  console.log(`   Web-панель: ${config.security.adminToken ? '✅ Защищена (ADMIN_TOKEN)' : '❌ Недоступна (ADMIN_TOKEN не задан)'}`);
   console.log(`   Telegram: ${config.security.telegramAccessMode === 'allowlist' ? `✅ Allowlist (${config.security.telegramAllowlist.length} записей)` : '🌐 Открыт (open)'}`);
 
   // Skills

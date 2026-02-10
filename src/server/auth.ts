@@ -11,9 +11,9 @@ import { config } from '../config/config.js';
 export function authMiddleware(req: Request, res: Response, next: NextFunction): void {
   const token = config.security.adminToken;
 
-  // Токен не настроен — авторизация отключена
+  // Токен не настроен — ошибка конфигурации
   if (!token) {
-    next();
+    res.status(500).json({ error: "Security Error: ADMIN_TOKEN is not configured." });
     return;
   }
 
