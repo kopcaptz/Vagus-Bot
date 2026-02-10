@@ -34,8 +34,12 @@ export async function buildMemoryBlocksForPrompt(
   const relevantMaxChars = options.relevantMaxChars ?? RELEVANT_MAX_CHARS;
   const relevantTopK = options.relevantTopK ?? RELEVANT_TOP_K;
 
-  const profileFacts = readProfileFacts(userId).filter((f) => f.importance === 'high').slice(0, PROFILE_MAX_LINES);
-  const workingFacts = readWorkingFacts(userId);
+  const [allProfileFacts, workingFacts] = await Promise.all([
+    readProfileFacts(userId),
+    readWorkingFacts(userId),
+  ]);
+
+  const profileFacts = allProfileFacts.filter((f) => f.importance === 'high').slice(0, PROFILE_MAX_LINES);
 
   let profileBlock = profileFacts.map((f) => `- ${f.text}`).join('\n');
   if (profileBlock.length > profileMaxChars) {

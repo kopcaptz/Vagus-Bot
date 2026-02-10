@@ -2,7 +2,8 @@
  * Memory v2 — запись фактов в .md файлы.
  */
 
-import fs from 'fs';
+import fs from 'fs/promises';
+import { constants } from 'fs';
 import path from 'path';
 import { formatFactLine, parseFactLine } from './format.js';
 import type { FactLine, FactType, UserMeta } from '../../types.js';
@@ -17,11 +18,18 @@ import {
 import { deleteChunksByFactId } from '../sqlite/delete.js';
 import type { Importance } from '../../types.js';
 
-function ensureUserDir(userId: string): void {
-  const dir = getUserDir(userId);
-  if (!fs.existsSync(dir)) {
-    fs.mkdirSync(dir, { recursive: true });
+async function exists(path: string): Promise<boolean> {
+  try {
+    await fs.access(path, constants.F_OK);
+    return true;
+  } catch {
+    return false;
   }
+}
+
+async function ensureUserDir(userId: string): Promise<void> {
+  const dir = getUserDir(userId);
+  await fs.mkdir(dir, { recursive: true });
 }
 
 function getPathForType(userId: string, type: FactType): string {
@@ -35,18 +43,18 @@ function getPathForType(userId: string, type: FactType): string {
 /**
  * Append a fact to the appropriate .md file.
  */
-export function appendFact(userId: string, fact: FactLine): void {
-  ensureUserDir(userId);
+export async function appendFact(userId: string, fact: FactLine): Promise<void> {
+  await ensureUserDir(userId);
   const filePath = getPathForType(userId, fact.type);
   const line = formatFactLine(fact);
-  fs.appendFileSync(filePath, line, 'utf-8');
+  await fs.appendFile(filePath, line, 'utf-8');
 }
 
 /**
  * Delete a fact by id from whichever file contains it.
  * Returns the deleted fact and file, or null if not found.
  */
-export function deleteFactById(userId: string, factId: string): { fact: FactLine; file: FactType } | null {
+export async function deleteFactById(userId: string, factId: string): Promise<{ fact: FactLine; file: FactType } | null> {
   const profilePath = getProfilePath(userId);
   const workingPath = getWorkingPath(userId);
   const archivePath = getArchivePath(userId);
@@ -57,9 +65,10 @@ export function deleteFactById(userId: string, factId: string): { fact: FactLine
     [archivePath, 'archive'],
   ];
   for (const [filePath, type] of files) {
-    if (!fs.existsSync(filePath)) continue;
+    if (!(await exists(filePath))) continue;
 
-    const lines = fs.readFileSync(filePath, 'utf-8').split('\n');
+    const content = await fs.readFile(filePath, 'utf-8');
+    const lines = content.split('\n');
     const newLines: string[] = [];
     let deleted: FactLine | null = null;
 
@@ -73,7 +82,7 @@ export function deleteFactById(userId: string, factId: string): { fact: FactLine
     }
 
     if (deleted) {
-      fs.writeFileSync(filePath, newLines.join('\n') + (newLines.length ? '\n' : ''), 'utf-8');
+      await fs.writeFile(filePath, newLines.join('\n') + (newLines.length ? '\n' : ''), 'utf-8');
       return { fact: deleted, file: type };
     }
   }
@@ -84,15 +93,16 @@ export function deleteFactById(userId: string, factId: string): { fact: FactLine
 /**
  * Update a fact by id: replace only the text body, keep id/type/imp/exp.
  */
-export function updateFactById(userId: string, factId: string, newText: string): FactLine | null {
+export async function updateFactById(userId: string, factId: string, newText: string): Promise<FactLine | null> {
   const profilePath = getProfilePath(userId);
   const workingPath = getWorkingPath(userId);
   const archivePath = getArchivePath(userId);
 
   for (const filePath of [profilePath, workingPath, archivePath]) {
-    if (!fs.existsSync(filePath)) continue;
+    if (!(await exists(filePath))) continue;
 
-    const lines = fs.readFileSync(filePath, 'utf-8').split('\n');
+    const content = await fs.readFile(filePath, 'utf-8');
+    const lines = content.split('\n');
     const newLines: string[] = [];
     let updated: FactLine | null = null;
 
@@ -107,7 +117,7 @@ export function updateFactById(userId: string, factId: string, newText: string):
     }
 
     if (updated) {
-      fs.writeFileSync(filePath, newLines.join('\n') + (newLines.length ? '\n' : ''), 'utf-8');
+      await fs.writeFile(filePath, newLines.join('\n') + (newLines.length ? '\n' : ''), 'utf-8');
       return updated;
     }
   }
@@ -118,18 +128,11 @@ export function updateFactById(userId: string, factId: string, newText: string):
 /**
  * Read current user meta or default.
  */
-export function readUserMeta(userId: string): UserMeta {
+export async function readUserMeta(userId: string): Promise<UserMeta> {
   const metaPath = getMetaPath(userId);
-  if (!fs.existsSync(metaPath)) {
-    return {
-      version: 2,
-      profileCount: 0,
-      workingCount: 0,
-      archiveCount: 0,
-    };
-  }
   try {
-    const data = JSON.parse(fs.readFileSync(metaPath, 'utf-8')) as Partial<UserMeta>;
+    const content = await fs.readFile(metaPath, 'utf-8');
+    const data = JSON.parse(content) as Partial<UserMeta>;
     const defaults: UserMeta = { version: 2, profileCount: 0, workingCount: 0, archiveCount: 0 };
     return { ...defaults, ...data };
   } catch {
@@ -140,19 +143,21 @@ export function readUserMeta(userId: string): UserMeta {
 /**
  * Write user meta (e.g. after append or eviction).
  */
-export function writeUserMeta(userId: string, meta: UserMeta): void {
-  ensureUserDir(userId);
+export async function writeUserMeta(userId: string, meta: UserMeta): Promise<void> {
+  await ensureUserDir(userId);
   const metaPath = getMetaPath(userId);
-  fs.writeFileSync(metaPath, JSON.stringify(meta, null, 2), 'utf-8');
+  await fs.writeFile(metaPath, JSON.stringify(meta, null, 2), 'utf-8');
 }
 
 /**
  * Recompute and persist counts from actual files.
  */
-export function refreshUserMetaCounts(userId: string): UserMeta {
-  const profile = readFactsFromFile(getProfilePath(userId));
-  const working = readFactsFromFile(getWorkingPath(userId));
-  const archive = readFactsFromFile(getArchivePath(userId));
+export async function refreshUserMetaCounts(userId: string): Promise<UserMeta> {
+  const [profile, working, archive] = await Promise.all([
+    readFactsFromFile(getProfilePath(userId)),
+    readFactsFromFile(getWorkingPath(userId)),
+    readFactsFromFile(getArchivePath(userId)),
+  ]);
 
   const meta: UserMeta = {
     version: 2,
@@ -160,7 +165,7 @@ export function refreshUserMetaCounts(userId: string): UserMeta {
     workingCount: working.length,
     archiveCount: archive.length,
   };
-  writeUserMeta(userId, meta);
+  await writeUserMeta(userId, meta);
   return meta;
 }
 
@@ -169,21 +174,23 @@ export function refreshUserMetaCounts(userId: string): UserMeta {
  * Removes up to howMany facts from archive.md and their chunks.
  * Returns number of facts evicted.
  */
-export function evictOldestArchive(userId: string, howMany: number): number {
+export async function evictOldestArchive(userId: string, howMany: number): Promise<number> {
   if (howMany <= 0) return 0;
   const archivePath = getArchivePath(userId);
-  if (!fs.existsSync(archivePath)) return 0;
+  // exists check is optional as readFactsFromFile handles missing file
 
-  const facts = readFactsFromFile(archivePath);
+  const facts = await readFactsFromFile(archivePath);
+  if (facts.length === 0) return 0;
+
   const order: Importance[] = ['low', 'normal', 'high'];
   const sorted = [...facts].sort((a, b) => order.indexOf(a.importance) - order.indexOf(b.importance));
   const toEvict = sorted.slice(0, howMany);
   if (toEvict.length === 0) return 0;
 
   for (const fact of toEvict) {
-    deleteFactById(userId, fact.id);
+    await deleteFactById(userId, fact.id);
     deleteChunksByFactId(userId, fact.id);
   }
-  refreshUserMetaCounts(userId);
+  await refreshUserMetaCounts(userId);
   return toEvict.length;
 }
