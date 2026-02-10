@@ -1,5 +1,7 @@
 import type { ImageAttachment } from '../ai/models.js';
 
+export type AccessRole = 'owner' | 'guest';
+
 // ============================================
 // Callback для статуса обработки (live typing)
 // ============================================
@@ -18,6 +20,8 @@ export interface IncomingMessage {
   chatId: string;
   /** ID пользователя */
   userId: string;
+  /** Роль доступа (owner = владелец, guest = гость) */
+  accessRole?: AccessRole;
   /** Username (@username) */
   username?: string;
   /** Имя пользователя */

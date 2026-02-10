@@ -6,10 +6,10 @@
  * Никогда не отправляет ответ сама.
  */
 
-import type { IncomingMessage, MessageResult } from './types.js';
+import type { IncomingMessage, MessageResult, AccessRole } from './types.js';
 import type { ImageAttachment } from '../ai/models.js';
 import { processWithAI } from '../ai/models.js';
-import { getSelectedModel, getModelConfig } from '../config/config.js';
+import { config, getSelectedModel, getModelConfig } from '../config/config.js';
 import { getContextConfig } from '../config/context.js';
 import { getSelectedPersona, getPersonas } from '../config/personas.js';
 import {
@@ -32,7 +32,7 @@ import { userRateLimiter } from '../server/rate-limit.js';
  * НЕ отправляет ответ — это делает канал.
  */
 export async function routeMessage(msg: IncomingMessage): Promise<MessageResult | null> {
-  const { chatId, userId, username, firstName, lastName, text, images } = msg;
+  const { chatId, userId, accessRole = 'owner', username, firstName, lastName, text, images } = msg;
 
   console.log(`📨 [${msg.channelId}] Сообщение от ${firstName || username || userId}: ${text || '[изображение]'}`);
 
@@ -77,7 +77,8 @@ export async function routeMessage(msg: IncomingMessage): Promise<MessageResult 
   }
 
   // --- AI обработка ---
-  return await processAIMessage(chatId, userId, text, images, msg.onStatus);
+  const allowTools = accessRole === 'owner' || config.security.telegramGuestToolsEnabled;
+  return await processAIMessage(chatId, userId, text, images, msg.onStatus, accessRole, allowTools);
 }
 
 // ============================================
@@ -157,6 +158,8 @@ async function processAIMessage(
   text: string,
   images?: ImageAttachment[],
   onStatus?: (status: string) => Promise<void>,
+  accessRole: AccessRole = 'owner',
+  allowTools: boolean = true,
 ): Promise<MessageResult | null> {
   const selectedModel = getSelectedModel();
   if (selectedModel === 'none') {
@@ -181,7 +184,7 @@ async function processAIMessage(
     const messageForContext = text || '[изображение]';
 
     if (contextConfig.enabled) {
-      contextMessages = await getContextForAI(chatId, messageForContext, userId);
+      contextMessages = await getContextForAI(chatId, messageForContext, userId, accessRole);
       console.log(`📚 Контекст: ${contextMessages.length} сообщений для чата ${chatId}`);
     }
 
@@ -190,6 +193,7 @@ async function processAIMessage(
       contextMessages,
       images && images.length > 0 ? images : undefined,
       onStatus,
+      { accessRole, allowTools },
     );
 
     if (!aiResponse) {

@@ -7,7 +7,7 @@
 
 import { Bot } from 'grammy';
 import type { Context } from 'grammy';
-import type { ChannelPlugin, OutgoingMessage, IncomingMessage } from '../types.js';
+import type { ChannelPlugin, OutgoingMessage, IncomingMessage, AccessRole } from '../types.js';
 import type { ImageAttachment } from '../../ai/models.js';
 import { channelRegistry } from '../registry.js';
 import { config } from '../../config/config.js';
@@ -63,6 +63,31 @@ export class TelegramChannel implements ChannelPlugin {
   // Allowlist guard
   // ============================================
 
+  private isIdentityListed(list: string[], userId: string, username?: string): boolean {
+    if (!list.length) return false;
+
+    const normalizedUsername = username
+      ? `@${username.replace(/^@/, '').toLowerCase()}`
+      : '';
+
+    return list.some((item) => {
+      const normalizedItem = item.startsWith('@')
+        ? `@${item.replace(/^@/, '').toLowerCase()}`
+        : item;
+
+      return normalizedItem === userId || (!!normalizedUsername && normalizedItem === normalizedUsername);
+    });
+  }
+
+  private getAccessRole(ctx: Context): AccessRole {
+    const owners = config.security.telegramOwners;
+    if (owners.length === 0) return 'owner';
+
+    const userId = ctx.from?.id?.toString() ?? '';
+    const username = ctx.from?.username;
+    return this.isIdentityListed(owners, userId, username) ? 'owner' : 'guest';
+  }
+
   private isAllowed(ctx: Context): boolean {
     if (config.security.telegramAccessMode !== 'allowlist') return true;
 
@@ -70,9 +95,9 @@ export class TelegramChannel implements ChannelPlugin {
     if (allowlist.length === 0) return true;
 
     const userId = ctx.from?.id?.toString() ?? '';
-    const username = ctx.from?.username ?? '';
+    const username = ctx.from?.username;
 
-    return allowlist.includes(userId) || allowlist.includes(`@${username}`);
+    return this.isIdentityListed(allowlist, userId, username);
   }
 
   // ============================================
@@ -100,6 +125,7 @@ export class TelegramChannel implements ChannelPlugin {
       await ctx.reply('🔒 Доступ запрещён. Обратитесь к администратору бота.');
       return;
     }
+    const accessRole = this.getAccessRole(ctx);
 
     // Отправляем статусное сообщение, которое будем обновлять
     const statusMsg = await ctx.reply('🤔 Думаю...');
@@ -113,6 +139,7 @@ export class TelegramChannel implements ChannelPlugin {
       channelId: this.id,
       chatId: chatId.toString(),
       userId,
+      accessRole,
       username: ctx.from?.username,
       firstName: ctx.from?.first_name,
       lastName: ctx.from?.last_name,
@@ -150,6 +177,7 @@ export class TelegramChannel implements ChannelPlugin {
       await ctx.reply('🔒 Доступ запрещён. Обратитесь к администратору бота.');
       return;
     }
+    const accessRole = this.getAccessRole(ctx);
 
     const caption = ctx.message?.caption ?? '';
 
@@ -168,6 +196,7 @@ export class TelegramChannel implements ChannelPlugin {
         channelId: this.id,
         chatId: chatId.toString(),
         userId,
+        accessRole,
         username: ctx.from?.username,
         firstName: ctx.from?.first_name,
         lastName: ctx.from?.last_name,

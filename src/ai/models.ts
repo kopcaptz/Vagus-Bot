@@ -17,6 +17,11 @@ export interface ImageAttachment {
   mediaType: string; // e.g. image/jpeg, image/png
 }
 
+export interface AIRequestOptions {
+  accessRole?: 'owner' | 'guest';
+  allowTools?: boolean;
+}
+
 // ============================================
 // Главная точка входа с failover
 // ============================================
@@ -30,6 +35,7 @@ export async function processWithAI(
   contextMessages?: ContextMessage[],
   imageAttachments?: ImageAttachment[],
   onStatus?: (status: string) => Promise<void>,
+  options?: AIRequestOptions,
 ): Promise<AIResponse | null> {
   const modelConfig = getModelConfig();
 
@@ -38,7 +44,7 @@ export async function processWithAI(
   }
 
   try {
-    return await callProvider(modelConfig, message, contextMessages, imageAttachments, onStatus);
+    return await callProvider(modelConfig, message, contextMessages, imageAttachments, onStatus, options);
   } catch (error) {
     // Попытка failover на альтернативный провайдер
     const fallback = getFallbackConfig(modelConfig);
@@ -46,7 +52,7 @@ export async function processWithAI(
       console.warn(`⚠️ ${modelConfig.provider} failed, trying ${fallback.provider}...`);
       await onStatus?.(`Переключаюсь на ${fallback.provider}...`);
       try {
-        return await callProvider(fallback, message, contextMessages, imageAttachments, onStatus);
+        return await callProvider(fallback, message, contextMessages, imageAttachments, onStatus, options);
       } catch (fallbackError) {
         console.error('❌ Failover тоже не удался:', fallbackError);
         throw error; // Бросаем оригинальную ошибку
@@ -63,12 +69,13 @@ async function callProvider(
   contextMessages?: ContextMessage[],
   imageAttachments?: ImageAttachment[],
   onStatus?: (status: string) => Promise<void>,
+  options?: AIRequestOptions,
 ): Promise<AIResponse> {
   switch (modelConfig.provider) {
     case 'openai':
-      return await processWithOpenAI(message, modelConfig, contextMessages, imageAttachments, onStatus);
+      return await processWithOpenAI(message, modelConfig, contextMessages, imageAttachments, onStatus, options);
     case 'anthropic':
-      return await processWithAnthropic(message, modelConfig, contextMessages, imageAttachments, onStatus);
+      return await processWithAnthropic(message, modelConfig, contextMessages, imageAttachments, onStatus, options);
     default:
       throw new Error(`Неизвестный провайдер: ${modelConfig.provider}`);
   }
@@ -112,6 +119,7 @@ async function processWithOpenAI(
   contextMessages?: ContextMessage[],
   imageAttachments?: ImageAttachment[],
   onStatus?: (status: string) => Promise<void>,
+  options?: AIRequestOptions,
 ): Promise<AIResponse> {
   if (!modelConfig.apiKey) {
     throw new Error('OpenAI API ключ не установлен');
@@ -135,12 +143,13 @@ async function processWithOpenAI(
     console.log(`📚 Используется контекст: ${contextMessages.length} сообщений${hasImages ? ` + ${imageAttachments!.length} изображение(й)` : ''}`);
   } else {
     messages = [
-      { role: 'system', content: getSystemPrompt() },
+      { role: 'system', content: getSystemPrompt({ accessRole: options?.accessRole ?? 'owner' }) },
       { role: 'user', content: buildOpenAIUserContent(message, imageAttachments) },
     ];
   }
 
-  const tools = skillRegistry.isEnabled() ? skillRegistry.getAllToolsForOpenAI() : undefined;
+  const toolsAllowed = options?.allowTools ?? true;
+  const tools = toolsAllowed && skillRegistry.isEnabled() ? skillRegistry.getAllToolsForOpenAI() : undefined;
   let totalTokens = 0;
   let iterations = 0;
 
@@ -254,6 +263,7 @@ async function processWithAnthropic(
   contextMessages?: ContextMessage[],
   imageAttachments?: ImageAttachment[],
   onStatus?: (status: string) => Promise<void>,
+  options?: AIRequestOptions,
 ): Promise<AIResponse> {
   if (!modelConfig.apiKey) {
     throw new Error('Anthropic API ключ не установлен');
@@ -278,13 +288,14 @@ async function processWithAnthropic(
 
     console.log(`📚 Используется контекст: ${contextMessages.length} сообщений${hasImages ? ` + ${imageAttachments!.length} изображение(й)` : ''}`);
   } else {
-    systemPrompt = getSystemPrompt();
+    systemPrompt = getSystemPrompt({ accessRole: options?.accessRole ?? 'owner' });
     messages = [
       { role: 'user', content: buildAnthropicUserContent(message, imageAttachments) },
     ];
   }
 
-  const tools = skillRegistry.isEnabled() ? skillRegistry.getAllToolsForAnthropic() : undefined;
+  const toolsAllowed = options?.allowTools ?? true;
+  const tools = toolsAllowed && skillRegistry.isEnabled() ? skillRegistry.getAllToolsForAnthropic() : undefined;
   let totalInputTokens = 0;
   let totalOutputTokens = 0;
   let iterations = 0;

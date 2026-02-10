@@ -4,6 +4,7 @@ import { getContextConfig } from '../config/context.js';
 import { getSystemPrompt } from '../config/personas.js';
 import { loadUserMemoriesCompat } from '../memory/index.js';
 import { buildMemoryBlocksForPrompt } from '../memory/prompt.js';
+import type { AccessRole } from '../channels/types.js';
 
 /**
  * Форматированное сообщение для AI контекста
@@ -20,9 +21,15 @@ export interface ContextMessage {
  * @param chatId - ID чата
  * @param currentMessage - Текущее сообщение пользователя (не включается в контекст)
  * @param userId - ID пользователя (для загрузки долговременной памяти)
+ * @param accessRole - Роль доступа пользователя (owner/guest) для system prompt
  * @returns Массив сообщений в формате для AI провайдеров
  */
-export async function getContextForAI(chatId: string, currentMessage?: string, userId?: string): Promise<ContextMessage[]> {
+export async function getContextForAI(
+  chatId: string,
+  currentMessage?: string,
+  userId?: string,
+  accessRole: AccessRole = 'owner',
+): Promise<ContextMessage[]> {
   const contextConfig = getContextConfig();
   
   // Если контекст отключен, возвращаем только текущее сообщение
@@ -54,7 +61,7 @@ export async function getContextForAI(chatId: string, currentMessage?: string, u
 
   // Добавляем системный промпт, если включен
   if (contextConfig.includeSystemPrompt) {
-    let systemContent = `${getSystemPrompt()} Учитывай контекст предыдущих сообщений в разговоре.`;
+    let systemContent = `${getSystemPrompt({ accessRole })} Учитывай контекст предыдущих сообщений в разговоре.`;
 
     // Инъекция долговременной памяти (Memory v2: pre-retrieval блоки или compat)
     const memoryUserId = (userId ?? chatId) || '';
