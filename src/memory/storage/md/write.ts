@@ -149,10 +149,12 @@ export function writeUserMeta(userId: string, meta: UserMeta): void {
 /**
  * Recompute and persist counts from actual files.
  */
-export function refreshUserMetaCounts(userId: string): UserMeta {
-  const profile = readFactsFromFile(getProfilePath(userId));
-  const working = readFactsFromFile(getWorkingPath(userId));
-  const archive = readFactsFromFile(getArchivePath(userId));
+export async function refreshUserMetaCounts(userId: string): Promise<UserMeta> {
+  const [profile, working, archive] = await Promise.all([
+    readFactsFromFile(getProfilePath(userId)),
+    readFactsFromFile(getWorkingPath(userId)),
+    readFactsFromFile(getArchivePath(userId)),
+  ]);
 
   const meta: UserMeta = {
     version: 2,
@@ -169,12 +171,12 @@ export function refreshUserMetaCounts(userId: string): UserMeta {
  * Removes up to howMany facts from archive.md and their chunks.
  * Returns number of facts evicted.
  */
-export function evictOldestArchive(userId: string, howMany: number): number {
+export async function evictOldestArchive(userId: string, howMany: number): Promise<number> {
   if (howMany <= 0) return 0;
   const archivePath = getArchivePath(userId);
-  if (!fs.existsSync(archivePath)) return 0;
+  // Removed sync check: if (!fs.existsSync(archivePath)) return 0;
 
-  const facts = readFactsFromFile(archivePath);
+  const facts = await readFactsFromFile(archivePath);
   const order: Importance[] = ['low', 'normal', 'high'];
   const sorted = [...facts].sort((a, b) => order.indexOf(a.importance) - order.indexOf(b.importance));
   const toEvict = sorted.slice(0, howMany);
@@ -184,6 +186,6 @@ export function evictOldestArchive(userId: string, howMany: number): number {
     deleteFactById(userId, fact.id);
     deleteChunksByFactId(userId, fact.id);
   }
-  refreshUserMetaCounts(userId);
+  await refreshUserMetaCounts(userId);
   return toEvict.length;
 }
