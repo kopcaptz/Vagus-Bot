@@ -408,6 +408,9 @@ if (message.startsWith('/mycommand')) {
 Все настройки в файле `.env`:
 
 - `TELEGRAM_BOT_TOKEN` - Токен Telegram бота (опционально)
+- `TELEGRAM_OWNER` - Хозяин бота (user_id или @username). Только он получает полный ответ; остальные — гости
+- `TELEGRAM_GUEST_MODE` - Режим для гостей: `block` (отказ) или `greeting` (кастомное приветствие)
+- `TELEGRAM_GUEST_MESSAGE` - Сообщение для гостей при режиме `greeting`
 - `PORT` - Порт веб-сервера (по умолчанию: 3000)
 - `HOST` - Хост сервера (0.0.0.0 для сети, localhost для локального)
 - `OPENAI_API_KEY` - OpenAI API ключ

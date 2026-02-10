@@ -76,6 +76,27 @@ export class TelegramChannel implements ChannelPlugin {
   }
 
   // ============================================
+  // Owner / Guest (хозяин / гости)
+  // ============================================
+
+  private isOwner(ctx: Context): boolean {
+    const owner = config.security.telegramOwner;
+    if (!owner) return true; // режим выключен — все как раньше
+
+    const userId = ctx.from?.id?.toString() ?? '';
+    const username = ctx.from?.username ?? '';
+
+    return owner === userId || owner === `@${username}`;
+  }
+
+  private getGuestReply(): string {
+    if (config.security.telegramGuestMode === 'greeting') {
+      return config.security.telegramGuestMessage;
+    }
+    return '🔒 Этот бот доступен только владельцу. Обратитесь к нему напрямую.';
+  }
+
+  // ============================================
   // Message splitter
   // ============================================
 
@@ -98,6 +119,11 @@ export class TelegramChannel implements ChannelPlugin {
 
     if (!this.isAllowed(ctx)) {
       await ctx.reply('🔒 Доступ запрещён. Обратитесь к администратору бота.');
+      return;
+    }
+
+    if (!this.isOwner(ctx)) {
+      await ctx.reply(this.getGuestReply());
       return;
     }
 
@@ -148,6 +174,11 @@ export class TelegramChannel implements ChannelPlugin {
 
     if (!this.isAllowed(ctx)) {
       await ctx.reply('🔒 Доступ запрещён. Обратитесь к администратору бота.');
+      return;
+    }
+
+    if (!this.isOwner(ctx)) {
+      await ctx.reply(this.getGuestReply());
       return;
     }
 
