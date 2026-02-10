@@ -6,6 +6,7 @@ import { WebChannel } from './channels/web/index.js';
 import { skillRegistry } from './skills/registry.js';
 import { CoreSkill } from './skills/core/index.js';
 import { DriveSkill } from './skills/drive/index.js';
+import { LibrarianSkill } from './skills/librarian/index.js';
 import { WebSearchSkill } from './skills/web-search/index.js';
 import { MemorySkill } from './skills/memory/index.js';
 import { SandboxSkill } from './skills/sandbox/index.js';
@@ -67,6 +68,7 @@ async function main() {
   console.log('Path exists:', fs.existsSync(resolvedDriveRoot));
   if (process.env.DRIVE_ROOT || (driveRoot && fs.existsSync(resolvedDriveRoot) && fs.statSync(resolvedDriveRoot).isDirectory())) {
     skillRegistry.register(new DriveSkill());
+    skillRegistry.register(new LibrarianSkill());
   }
   if (process.env.DRIVE_ROOT || driveRoot) {
     if (!fs.existsSync(resolvedDriveRoot)) {
