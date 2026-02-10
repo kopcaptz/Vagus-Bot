@@ -25,7 +25,7 @@ export interface ModelConfig {
 
 // Функция для получения актуальных значений из env
 function getEnvValue(key: string, defaultValue: string = ''): string {
-  dotenv.config(); // Перезагружаем env при каждом запросе
+
   return process.env[key] || defaultValue;
 }
 
