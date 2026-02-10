@@ -89,23 +89,30 @@ type OpenAIMessage =
   | { role: 'assistant'; content: string; tool_calls: Array<{ id: string; type: 'function'; function: { name: string; arguments: string } }> }
   | { role: 'tool'; tool_call_id: string; content: string };
 
-function buildOpenAIUserContent(message: string, imageAttachments?: ImageAttachment[]): string | Array<{ type: 'text'; text: string } | { type: 'image_url'; image_url: { url: string } }> {
+function buildMultimodalUserContent<T>(
+  message: string,
+  imageAttachments: ImageAttachment[] | undefined,
+  imageFormatter: (img: ImageAttachment) => T
+): string | Array<{ type: 'text'; text: string } | T> {
   if (!imageAttachments || imageAttachments.length === 0) {
     return message;
   }
-  const parts: Array<{ type: 'text'; text: string } | { type: 'image_url'; image_url: { url: string } }> = [];
+  const parts: Array<{ type: 'text'; text: string } | T> = [];
   if (message.trim()) {
     parts.push({ type: 'text', text: message });
   }
   for (const img of imageAttachments) {
-    parts.push({
-      type: 'image_url',
-      image_url: { url: `data:${img.mediaType};base64,${img.data}` },
-    });
+    parts.push(imageFormatter(img));
   }
   return parts;
 }
 
+function buildOpenAIUserContent(message: string, imageAttachments?: ImageAttachment[]): string | Array<{ type: 'text'; text: string } | { type: 'image_url'; image_url: { url: string } }> {
+  return buildMultimodalUserContent(message, imageAttachments, img => ({
+    type: "image_url",
+    image_url: { url: `data:${img.mediaType};base64,${img.data}` },
+  }));
+}
 async function processWithOpenAI(
   message: string,
   modelConfig: ModelConfig,
@@ -232,22 +239,11 @@ type AnthropicContentBlock =
 type AnthropicMessage = { role: 'user' | 'assistant'; content: string | AnthropicContentBlock[] };
 
 function buildAnthropicUserContent(message: string, imageAttachments?: ImageAttachment[]): string | AnthropicContentBlock[] {
-  if (!imageAttachments || imageAttachments.length === 0) {
-    return message;
-  }
-  const blocks: AnthropicContentBlock[] = [];
-  if (message.trim()) {
-    blocks.push({ type: 'text', text: message });
-  }
-  for (const img of imageAttachments) {
-    blocks.push({
-      type: 'image',
-      source: { type: 'base64', media_type: img.mediaType, data: img.data },
-    });
-  }
-  return blocks;
+  return buildMultimodalUserContent(message, imageAttachments, img => ({
+    type: "image",
+    source: { type: "base64", media_type: img.mediaType, data: img.data },
+  }));
 }
-
 async function processWithAnthropic(
   message: string,
   modelConfig: ModelConfig,
@@ -272,7 +268,6 @@ async function processWithAnthropic(
       role: (msg.role === 'assistant' ? 'assistant' : 'user') as 'user' | 'assistant',
       content: msg.content,
     }));
-
     const userContent = buildAnthropicUserContent(message, imageAttachments);
     messages.push({ role: 'user', content: userContent });
 
