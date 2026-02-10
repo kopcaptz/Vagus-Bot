@@ -6,6 +6,7 @@
  */
 
 import type { Request, Response, NextFunction } from 'express';
+import crypto from 'node:crypto';
 import { config } from '../config/config.js';
 
 export function authMiddleware(req: Request, res: Response, next: NextFunction): void {
@@ -22,7 +23,12 @@ export function authMiddleware(req: Request, res: Response, next: NextFunction):
     (req.query.token as string) ||
     '';
 
-  if (provided === token) {
+  // Используем timingSafeEqual для защиты от timing attacks.
+  // Сравниваем хэши, чтобы избежать утечки длины токена.
+  const tokenHash = crypto.createHash('sha256').update(token).digest();
+  const providedHash = crypto.createHash('sha256').update(provided).digest();
+
+  if (crypto.timingSafeEqual(tokenHash, providedHash)) {
     next();
     return;
   }
