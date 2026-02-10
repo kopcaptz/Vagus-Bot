@@ -3,6 +3,7 @@ import { getSystemPrompt } from '../config/personas.js';
 import type { ContextMessage } from '../db/context.js';
 import { skillRegistry } from '../skills/registry.js';
 import { fetchWithRetry } from './retry.js';
+import { getValidAccessToken } from '../auth/google-oauth.js';
 
 export interface AIResponse {
   text: string;
@@ -64,18 +65,36 @@ async function callProvider(
   imageAttachments?: ImageAttachment[],
   onStatus?: (status: string) => Promise<void>,
 ): Promise<AIResponse> {
+  // Для Google OAuth — подставляем access_token динамически
+  if (modelConfig.provider === 'google_gemini') {
+    const accessToken = await getValidAccessToken();
+    if (!accessToken) {
+      throw new Error('Google OAuth: нет валидного access_token. Переподключите Google OAuth в настройках.');
+    }
+    modelConfig = { ...modelConfig, apiKey: accessToken };
+  }
+
   switch (modelConfig.provider) {
     case 'openai':
       return await processWithOpenAI(message, modelConfig, contextMessages, imageAttachments, onStatus);
     case 'anthropic':
       return await processWithAnthropic(message, modelConfig, contextMessages, imageAttachments, onStatus);
+    case 'google_gemini':
+      return await processWithGemini(message, modelConfig, contextMessages, imageAttachments, onStatus);
     default:
       throw new Error(`Неизвестный провайдер: ${modelConfig.provider}`);
   }
 }
 
-/** Получить fallback-конфиг: при сбое любого OpenRouter-тира — BUDGET (DeepSeek). */
+/** Получить fallback-конфиг: при сбое — OpenRouter BUDGET (DeepSeek). */
 function getFallbackConfig(current: ModelConfig): ModelConfig | null {
+  // Google OAuth failure → fallback на OpenRouter (если ключ есть)
+  if (current.provider === 'google_gemini') {
+    const fallback = getOpenRouterFallbackConfig();
+    if (fallback.apiKey) return fallback;
+    return null;
+  }
+  // OpenRouter failure → BUDGET tier
   if (current.baseUrl) return getOpenRouterFallbackConfig();
   return null;
 }
@@ -341,4 +360,223 @@ async function processWithAnthropic(
       tokensUsed: totalInputTokens + totalOutputTokens || undefined,
     };
   }
+}
+
+// ============================================
+// Google Gemini (через OAuth)
+// ============================================
+
+const GEMINI_API_BASE = 'https://generativelanguage.googleapis.com/v1beta';
+
+interface GeminiPart {
+  text?: string;
+  inlineData?: { mimeType: string; data: string };
+  functionCall?: { name: string; args: Record<string, unknown> };
+  functionResponse?: { name: string; response: { content: string } };
+}
+
+interface GeminiContent {
+  role: 'user' | 'model';
+  parts: GeminiPart[];
+}
+
+function buildGeminiUserParts(message: string, imageAttachments?: ImageAttachment[]): GeminiPart[] {
+  const parts: GeminiPart[] = [];
+  if (message.trim()) {
+    parts.push({ text: message });
+  }
+  if (imageAttachments) {
+    for (const img of imageAttachments) {
+      parts.push({
+        inlineData: { mimeType: img.mediaType, data: img.data },
+      });
+    }
+  }
+  return parts;
+}
+
+function buildGeminiTools(): Array<{ functionDeclarations: Array<{ name: string; description: string; parameters: unknown }> }> | undefined {
+  if (!skillRegistry.isEnabled()) return undefined;
+
+  const openAITools = skillRegistry.getAllToolsForOpenAI();
+  if (!openAITools || openAITools.length === 0) return undefined;
+
+  const declarations = openAITools.map((t: { function: { name: string; description: string; parameters: unknown } }) => ({
+    name: t.function.name,
+    description: t.function.description,
+    parameters: t.function.parameters,
+  }));
+
+  return [{ functionDeclarations: declarations }];
+}
+
+async function processWithGemini(
+  message: string,
+  modelConfig: ModelConfig,
+  contextMessages?: ContextMessage[],
+  imageAttachments?: ImageAttachment[],
+  onStatus?: (status: string) => Promise<void>,
+): Promise<AIResponse> {
+  if (!modelConfig.apiKey) {
+    throw new Error('Google Gemini: нет access_token (OAuth не подключён)');
+  }
+
+  const model = modelConfig.model || 'gemini-2.0-flash';
+  const url = `${GEMINI_API_BASE}/models/${model}:generateContent`;
+
+  // Build contents array
+  let contents: GeminiContent[] = [];
+  let systemInstruction: { parts: GeminiPart[] } | undefined = undefined;
+
+  if (contextMessages && contextMessages.length > 0) {
+    // Extract system message
+    const systemMsg = contextMessages.find(msg => msg.role === 'system');
+    if (systemMsg) {
+      systemInstruction = { parts: [{ text: systemMsg.content }] };
+    }
+
+    // Map context (excluding last user message — we add it below with images)
+    const contextOnly = contextMessages.filter(m => m.role !== 'system').slice(0, -1);
+    for (const msg of contextOnly) {
+      contents.push({
+        role: msg.role === 'assistant' ? 'model' : 'user',
+        parts: [{ text: msg.content }],
+      });
+    }
+
+    // Add current user message with images
+    contents.push({
+      role: 'user',
+      parts: buildGeminiUserParts(message, imageAttachments),
+    });
+
+    const hasImages = imageAttachments && imageAttachments.length > 0;
+    console.log(`📚 [Gemini] Контекст: ${contextMessages.length} сообщений${hasImages ? ` + ${imageAttachments!.length} изображение(й)` : ''}`);
+  } else {
+    systemInstruction = { parts: [{ text: getSystemPrompt() }] };
+    contents = [
+      { role: 'user', parts: buildGeminiUserParts(message, imageAttachments) },
+    ];
+  }
+
+  // Ensure contents alternate user/model (Gemini requirement)
+  contents = normalizeGeminiContents(contents);
+
+  const tools = buildGeminiTools();
+  let totalTokens = 0;
+  let iterations = 0;
+
+  while (true) {
+    const body: Record<string, unknown> = {
+      contents,
+      generationConfig: {
+        maxOutputTokens: config.ai.maxTokens,
+        temperature: 0.7,
+      },
+    };
+    if (systemInstruction) body.systemInstruction = systemInstruction;
+    if (tools) body.tools = tools;
+
+    const response = await fetchWithRetry(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${modelConfig.apiKey}`,
+      },
+      body: JSON.stringify(body),
+    });
+
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ error: 'Unknown error' })) as any;
+      const errorMessage = error?.error?.message || JSON.stringify(error);
+
+      // Handle 401 — token expired or invalid
+      if (response.status === 401) {
+        throw new Error(`Google Gemini: токен невалиден (401). Переподключите Google OAuth.`);
+      }
+      // Handle 429 — quota exceeded
+      if (response.status === 429) {
+        throw new Error(`Google Gemini: лимит запросов превышен (429). Попробуйте позже. ${errorMessage}`);
+      }
+      throw new Error(`Google Gemini API error: ${errorMessage}`);
+    }
+
+    const data = await response.json() as any;
+
+    // Extract usage
+    totalTokens += (data.usageMetadata?.totalTokenCount ?? 0);
+
+    const candidate = data.candidates?.[0];
+    if (!candidate) {
+      throw new Error('Google Gemini: нет кандидатов в ответе');
+    }
+
+    const responseParts: GeminiPart[] = candidate.content?.parts ?? [];
+
+    // Check for function calls
+    const functionCalls = responseParts.filter((p: GeminiPart) => p.functionCall);
+
+    if (tools && functionCalls.length > 0 && iterations < config.ai.maxIterations) {
+      // Add model's response to contents
+      contents.push({
+        role: 'model',
+        parts: responseParts,
+      });
+
+      // Execute tool calls
+      const functionResponses: GeminiPart[] = [];
+      for (const part of functionCalls) {
+        const fc = part.functionCall!;
+        await onStatus?.(`Использую ${fc.name}...`);
+        const result = await skillRegistry.executeTool(fc.name, fc.args ?? {});
+        functionResponses.push({
+          functionResponse: {
+            name: fc.name,
+            response: { content: result },
+          },
+        });
+      }
+
+      // Add function responses as user message
+      contents.push({
+        role: 'user',
+        parts: functionResponses,
+      });
+
+      iterations++;
+      await onStatus?.(`Анализирую результаты (итерация ${iterations})...`);
+      continue;
+    }
+
+    // Extract text response
+    const textParts = responseParts.filter((p: GeminiPart) => p.text);
+    const responseText = textParts.map((p: GeminiPart) => p.text).join('') || 'Нет ответа';
+
+    return {
+      text: responseText,
+      model: model,
+      provider: 'google_gemini',
+      tokensUsed: totalTokens || undefined,
+    };
+  }
+}
+
+/**
+ * Gemini требует чередование user/model. Сливаем последовательные сообщения одной роли.
+ */
+function normalizeGeminiContents(contents: GeminiContent[]): GeminiContent[] {
+  if (contents.length === 0) return contents;
+
+  const result: GeminiContent[] = [contents[0]];
+  for (let i = 1; i < contents.length; i++) {
+    const prev = result[result.length - 1];
+    const curr = contents[i];
+    if (prev.role === curr.role) {
+      // Merge parts
+      prev.parts.push(...curr.parts);
+    } else {
+      result.push(curr);
+    }
+  }
+  return result;
 }

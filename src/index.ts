@@ -12,11 +12,12 @@ import { SandboxSkill } from './skills/sandbox/index.js';
 import { BrowserSkill } from './skills/browser/index.js';
 import { CliGatewaySkill } from './skills/cli-gateway/index.js';
 import { startWebServer } from './server/web.js';
-import { config, ensureDefaultModel, getSelectedModel } from './config/config.js';
+import { config, ensureDefaultModel, getSelectedModel, getSelectedAuthProvider } from './config/config.js';
 import { initDatabase } from './db/database.js';
 import { getContextConfig } from './config/context.js';
 import { userRateLimiter } from './server/rate-limit.js';
 import { runCleanup } from './memory/jobs/cleanup.js';
+import { isGoogleOAuthConfigured, getOAuthStatus } from './auth/google-oauth.js';
 
 async function main() {
   console.log('🚀 Запуск Vagus Bot...\n');
@@ -33,6 +34,16 @@ async function main() {
   console.log(`   OpenRouter API Key: ${config.ai.openrouterKey ? '✅ Установлен' : '❌ Не установлен'}`);
   console.log(`   Модель: ${getSelectedModel()}`);
   console.log(`   Telegram: ${config.telegram.enabled ? '✅ Включен' : '❌ Отключен'}`);
+
+  // Auth Provider
+  const authProvider = getSelectedAuthProvider();
+  console.log(`\n⚡ Источник силы: ${authProvider}`);
+  if (isGoogleOAuthConfigured()) {
+    const oauthStatus = getOAuthStatus();
+    console.log(`   Google OAuth: ✅ Настроен (${oauthStatus.status}: ${oauthStatus.message})`);
+  } else {
+    console.log(`   Google OAuth: ❌ Не настроен (нет GOOGLE_OAUTH_CLIENT_ID/SECRET)`);
+  }
 
   // Контекстная память
   const contextConfig = getContextConfig();

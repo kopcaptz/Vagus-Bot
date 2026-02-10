@@ -35,13 +35,94 @@ header h1 {
     box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
 }
 
-.stats-card, .send-card, .info-card, .model-card, .history-card, .context-card {
+.stats-card, .send-card, .info-card, .model-card, .history-card, .context-card, .power-source-card {
     background: white;
     border-radius: 12px;
     padding: 25px;
     margin-bottom: 20px;
     box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
 }
+
+.power-source-card {
+    border-top: 4px solid #ffc107;
+}
+
+/* Provider selector */
+.provider-option {
+    display: flex;
+    align-items: center;
+    padding: 14px;
+    margin-bottom: 10px;
+    border: 2px solid #e0e0e0;
+    border-radius: 10px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    gap: 14px;
+}
+
+.provider-option:hover {
+    border-color: #667eea;
+    background: #f8f9ff;
+}
+
+.provider-option.active {
+    border-color: #667eea;
+    background: linear-gradient(135deg, #f0f2ff 0%, #e8eaff 100%);
+    box-shadow: 0 2px 8px rgba(102, 126, 234, 0.15);
+}
+
+.provider-option .provider-radio {
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    border: 2px solid #ccc;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+}
+
+.provider-option.active .provider-radio {
+    border-color: #667eea;
+}
+
+.provider-option.active .provider-radio::after {
+    content: '';
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: #667eea;
+}
+
+.provider-info {
+    flex: 1;
+}
+
+.provider-name {
+    font-weight: bold;
+    font-size: 1.05em;
+    margin-bottom: 3px;
+}
+
+.provider-desc {
+    color: #666;
+    font-size: 0.85em;
+}
+
+.provider-status {
+    padding: 4px 10px;
+    border-radius: 20px;
+    font-size: 0.75em;
+    font-weight: bold;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    flex-shrink: 0;
+}
+
+.provider-status.connected { background: #d4edda; color: #155724; }
+.provider-status.expired { background: #fff3cd; color: #856404; }
+.provider-status.needs_reauth { background: #f8d7da; color: #721c24; }
+.provider-status.disconnected { background: #e2e3e5; color: #383d41; }
 
 .history-controls {
     display: grid;
