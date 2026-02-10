@@ -62,21 +62,8 @@ export function getMessageHistory(chatId: string, limit: number = 50): Message[]
  * Получить последние N сообщений для чата (для контекста AI)
  */
 export function getRecentMessages(chatId: string, limit: number = 10): Message[] {
-  const stmt = db.prepare(`
-    SELECT * FROM messages
-    WHERE chat_id = ?
-    ORDER BY created_at DESC
-    LIMIT ?
-  `);
-
-  const messages = stmt.all(chatId, limit) as Message[];
-  
-  return messages.map(msg => ({
-    ...msg,
-    is_bot: Boolean(msg.is_bot),
-  })).reverse();
+  return getMessageHistory(chatId, limit);
 }
-
 /**
  * Получить общее количество сообщений в чате
  */
