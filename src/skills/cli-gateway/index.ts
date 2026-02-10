@@ -237,6 +237,14 @@ function runCommand(
   });
 }
 
+function makeBlockedResponse(message: string): CliResponseError {
+  return {
+    ok: false,
+    error: 'NOT_IMPLEMENTED',
+    message,
+  };
+}
+
 function makeStatusResponse(): string {
   const cfg = cliGatewayConfig;
   const allowedBinaries = Object.keys(cfg.allowlist);
