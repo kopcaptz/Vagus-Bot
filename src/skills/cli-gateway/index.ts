@@ -150,6 +150,13 @@ function makeErrorResponse(error: CliResponseError['error'], message: string, ex
   return { ok: false, error, message, ...extra };
 }
 
+/**
+ * Унифицированный ответ BLOCKED для заглушек/отключённых сценариев.
+ */
+function makeBlockedResponse(message: string): CliResponseError {
+  return makeErrorResponse('MODE_OFF', message);
+}
+
 /** Команда входит в список SAFE (read-only). */
 function isCommandInSafeList(executable: string, args: string[]): boolean {
   const def = cliGatewayConfig.allowlist[executable];

@@ -312,16 +312,6 @@ export function createApiRouter() {
     }
   });
 
-  router.delete('/api/history/:chatId', (req, res) => {
-    try {
-      const { chatId } = req.params;
-      const deleted = clearChatHistory(chatId);
-      res.json({ success: true, deleted });
-    } catch (error) {
-      res.status(500).json({ error: 'Ошибка очистки истории' });
-    }
-  });
-
   router.delete('/api/history/cleanup', (req, res) => {
     try {
       const days = req.query.days ? parseInt(req.query.days as string, 10) : 30;
@@ -329,6 +319,16 @@ export function createApiRouter() {
       res.json({ success: true, deleted, days });
     } catch (error) {
       res.status(500).json({ error: 'Ошибка удаления старых сообщений' });
+    }
+  });
+
+  router.delete('/api/history/:chatId', (req, res) => {
+    try {
+      const { chatId } = req.params;
+      const deleted = clearChatHistory(chatId);
+      res.json({ success: true, deleted });
+    } catch (error) {
+      res.status(500).json({ error: 'Ошибка очистки истории' });
     }
   });
 

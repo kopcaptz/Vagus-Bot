@@ -1,7 +1,7 @@
 /**
  * auth.ts — Express middleware для авторизации по токену.
  *
- * Если ADMIN_TOKEN не задан — доступ открыт.
+ * Secure-by-default: если ADMIN_TOKEN не задан — доступ к API заблокирован (401).
  * Если задан — проверяет заголовок X-Admin-Token или query-параметр ?token=...
  */
 
@@ -11,9 +11,11 @@ import { config } from '../config/config.js';
 export function authMiddleware(req: Request, res: Response, next: NextFunction): void {
   const token = config.security.adminToken;
 
-  // Токен не настроен — авторизация отключена
+  // Secure-by-default: без ADMIN_TOKEN доступ к API запрещён
   if (!token) {
-    next();
+    res.status(401).json({
+      error: 'ADMIN_TOKEN not configured. Set ADMIN_TOKEN in .env to enable API access.',
+    });
     return;
   }
 

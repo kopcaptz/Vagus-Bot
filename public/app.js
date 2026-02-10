@@ -18,6 +18,13 @@ async function apiFetch(url, options = {}) {
     }
     const response = await fetch(url, options);
     if (response.status === 401) {
+        const body = await response.clone().json().catch(() => ({}));
+        const errorText = String(body?.error || '');
+        if (errorText.includes('ADMIN_TOKEN not configured')) {
+            alert('⛔ API заблокирован: ADMIN_TOKEN не настроен на сервере.\n\nДобавьте ADMIN_TOKEN в .env и перезапустите приложение.');
+            return response;
+        }
+
         const newToken = prompt('🔒 Требуется авторизация.\n\nВведите ADMIN_TOKEN:');
         if (newToken) {
             setAdminToken(newToken);
@@ -36,6 +43,13 @@ async function apiFetchMultipart(url, formData) {
     if (token) headers['X-Admin-Token'] = token;
     const response = await fetch(url, { method: 'POST', headers, body: formData });
     if (response.status === 401) {
+        const body = await response.clone().json().catch(() => ({}));
+        const errorText = String(body?.error || '');
+        if (errorText.includes('ADMIN_TOKEN not configured')) {
+            alert('⛔ API заблокирован: ADMIN_TOKEN не настроен на сервере.\n\nДобавьте ADMIN_TOKEN в .env и перезапустите приложение.');
+            return response;
+        }
+
         const newToken = prompt('🔒 Требуется авторизация.\n\nВведите ADMIN_TOKEN:');
         if (newToken) {
             setAdminToken(newToken);
