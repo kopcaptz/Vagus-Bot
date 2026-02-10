@@ -14,6 +14,7 @@ import { CliGatewaySkill } from './skills/cli-gateway/index.js';
 import { startWebServer } from './server/web.js';
 import { config, ensureDefaultModel, getSelectedModel } from './config/config.js';
 import { initDatabase } from './db/database.js';
+import { repairSessionCounts } from './db/queries.js';
 import { getContextConfig } from './config/context.js';
 import { userRateLimiter } from './server/rate-limit.js';
 import { runCleanup } from './memory/jobs/cleanup.js';
@@ -23,6 +24,7 @@ async function main() {
 
   // Инициализация базы данных
   initDatabase();
+  repairSessionCounts();
   // Memory v2: удаление истёкших working фактов при старте
   runCleanup();
   // Модель по умолчанию (DEFAULT_MODEL), чтобы бот работал сразу без выбора в веб-интерфейсе
