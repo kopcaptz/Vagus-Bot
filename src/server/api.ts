@@ -391,11 +391,11 @@ export function createApiRouter() {
     }
   });
 
-  router.get('/api/context/:chatId', (req, res) => {
+  router.get('/api/context/:chatId', async (req, res) => {
     try {
       const { chatId } = req.params;
       const { message } = req.query;
-      const contextMessages = getContextForAI(chatId, message as string);
+      const contextMessages = await getContextForAI(chatId, message as string);
       const stats = getContextStats(chatId);
       res.json({ success: true, chatId, messages: contextMessages, stats });
     } catch (error) {

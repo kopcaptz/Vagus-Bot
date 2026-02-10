@@ -2,7 +2,8 @@ import { getRecentMessages } from './queries.js';
 import type { Message } from './types.js';
 import { getContextConfig } from '../config/context.js';
 import { getSystemPrompt } from '../config/personas.js';
-import { loadUserMemories } from '../skills/memory/index.js';
+import { loadUserMemoriesCompat } from '../memory/index.js';
+import { buildMemoryBlocksForPrompt } from '../memory/prompt.js';
 
 /**
  * Форматированное сообщение для AI контекста
@@ -21,7 +22,7 @@ export interface ContextMessage {
  * @param userId - ID пользователя (для загрузки долговременной памяти)
  * @returns Массив сообщений в формате для AI провайдеров
  */
-export function getContextForAI(chatId: string, currentMessage?: string, userId?: string): ContextMessage[] {
+export async function getContextForAI(chatId: string, currentMessage?: string, userId?: string): Promise<ContextMessage[]> {
   const contextConfig = getContextConfig();
   
   // Если контекст отключен, возвращаем только текущее сообщение
@@ -55,12 +56,16 @@ export function getContextForAI(chatId: string, currentMessage?: string, userId?
   if (contextConfig.includeSystemPrompt) {
     let systemContent = `${getSystemPrompt()} Учитывай контекст предыдущих сообщений в разговоре.`;
 
-    // Инъекция долговременной памяти
-    const memoryUserId = userId || chatId;
-    const memories = loadUserMemories(memoryUserId);
-    if (memories) {
-      systemContent += `\n\nUser's long-term memory (facts you know about this user):\n${memories}\n\nUse memory_save to store new important facts you learn.`;
-      console.log(`🧠 Память загружена для ${memoryUserId}: ${memories.split('\n').length} фактов`);
+    // Инъекция долговременной памяти (Memory v2: pre-retrieval блоки или compat)
+    const memoryUserId = (userId ?? chatId) || '';
+    let memoryBlock: string | null = await buildMemoryBlocksForPrompt(memoryUserId, currentMessage ?? '');
+    if (!memoryBlock) memoryBlock = await loadUserMemoriesCompat(memoryUserId);
+    if (memoryBlock) {
+      const isStructured = memoryBlock.includes('[PROFILE MEMORY]');
+      systemContent += isStructured
+        ? `\n\n${memoryBlock}\n\nUse memory_save to store new important facts you learn.`
+        : `\n\nUser's long-term memory (facts you know about this user):\n${memoryBlock}\n\nUse memory_save to store new important facts you learn.`;
+      console.log(`🧠 Память загружена для ${memoryUserId}: ${memoryBlock.split('\n').length} строк`);
     }
 
     // Передаём userId чтобы AI мог вызывать memory_save

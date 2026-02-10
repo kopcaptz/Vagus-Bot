@@ -15,12 +15,15 @@ import { config, ensureDefaultModel, getSelectedModel } from './config/config.js
 import { initDatabase } from './db/database.js';
 import { getContextConfig } from './config/context.js';
 import { userRateLimiter } from './server/rate-limit.js';
+import { runCleanup } from './memory/jobs/cleanup.js';
 
 async function main() {
   console.log('🚀 Запуск Vagus Bot...\n');
 
   // Инициализация базы данных
   initDatabase();
+  // Memory v2: удаление истёкших working фактов при старте
+  runCleanup();
   // Модель по умолчанию (DEFAULT_MODEL), чтобы бот работал сразу без выбора в веб-интерфейсе
   ensureDefaultModel();
 

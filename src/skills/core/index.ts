@@ -165,7 +165,7 @@ function runCommandSafe(command: string): string {
     });
     return (result ?? '').trim() || '(команда выполнена, вывод пуст)';
   } catch (err: unknown) {
-    const execErr = err as NodeJS.ExecException | undefined;
+    const execErr = err as { killed?: boolean; signal?: string; code?: string | number; stderr?: string } | undefined;
     // Node may set killed/signal when timeout kills the process; verify in your env (PowerShell/Windows).
     const isTimeout =
       execErr?.killed === true ||

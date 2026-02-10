@@ -181,7 +181,7 @@ async function processAIMessage(
     const messageForContext = text || '[изображение]';
 
     if (contextConfig.enabled) {
-      contextMessages = getContextForAI(chatId, messageForContext, userId);
+      contextMessages = await getContextForAI(chatId, messageForContext, userId);
       console.log(`📚 Контекст: ${contextMessages.length} сообщений для чата ${chatId}`);
     }
 
