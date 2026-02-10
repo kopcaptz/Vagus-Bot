@@ -454,7 +454,8 @@ export class CliGatewaySkill implements Skill {
         console.log(`${LOG_PREFIX} Confirm token received: ${validation.token.substring(0, 8)}...`);
 
         // Фаза 1: всегда BLOCKED
-        const response = makeBlockedResponse(
+        const response = makeErrorResponse(
+          'NOT_IMPLEMENTED',
           'Phase 1 stub. Confirmation token validation is not implemented yet.',
         );
         return JSON.stringify(response, null, 2);
