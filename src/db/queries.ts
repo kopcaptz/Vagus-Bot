@@ -34,6 +34,11 @@ export function saveMessage(params: {
     params.ai_provider || null
   );
 
+try {
+    db.prepare('UPDATE sessions SET message_count = message_count + 1 WHERE chat_id = ?').run(params.chat_id);
+  } catch (e) {
+    console.error('Failed to update session message count', e);
+  }
   console.log(`💾 Сообщение сохранено: ID=${result.lastInsertRowid}, chat=${params.chat_id}, user=${params.user_id}`);
   return Number(result.lastInsertRowid);
 }
@@ -158,10 +163,9 @@ export function createOrUpdateSession(params: {
 
   const stmt = db.prepare(`
     INSERT INTO sessions (session_id, chat_id, user_id, last_message_at, message_count)
-    VALUES (?, ?, ?, CURRENT_TIMESTAMP, 1)
+    VALUES (?, ?, ?, CURRENT_TIMESTAMP, 0)
     ON CONFLICT(chat_id) DO UPDATE SET
-      last_message_at = CURRENT_TIMESTAMP,
-      message_count = message_count + 1
+      last_message_at = CURRENT_TIMESTAMP
   `);
 
   stmt.run(
@@ -236,6 +240,20 @@ export function getChatHistoryAdvanced(chatId: string, options: HistoryFilter = 
   const limit = options.limit ?? 50;
   const offset = options.offset ?? 0;
 
+  // --- Optimization: Use cached count from sessions if no filters ---
+  if (!options.role && !options.startDate && !options.endDate && !options.search) {
+    const session = db.prepare('SELECT message_count FROM sessions WHERE chat_id = ?').get(chatId) as { message_count: number } | undefined;
+    if (session) {
+      const rows = db.prepare('SELECT * FROM messages WHERE chat_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?').all(chatId, limit, offset) as Message[];
+      return {
+        messages: rows.map(msg => ({ ...msg, is_bot: Boolean(msg.is_bot) })),
+        total: session.message_count,
+        limit,
+        offset,
+      };
+    }
+  }
+
   let query = 'SELECT * FROM messages WHERE chat_id = ?';
   const params: Array<string | number> = [chatId];
 
@@ -300,4 +318,21 @@ export function cleanupOldMessages(days: number): number {
   `);
   const info = stmt.run(days);
   return info.changes;
+}
+
+/**
+ * Восстановление счетчиков сообщений в сессиях
+ */
+export function repairSessionCounts() {
+  console.log('🔄 Repairing session message counts...');
+  const stmt = db.prepare(`
+    UPDATE sessions
+    SET message_count = (
+      SELECT COUNT(*)
+      FROM messages
+      WHERE messages.chat_id = sessions.chat_id
+    )
+  `);
+  const info = stmt.run();
+  console.log(`✅ Session message counts repaired. Updated ${info.changes} sessions.`);
 }
