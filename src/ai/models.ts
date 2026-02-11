@@ -18,6 +18,28 @@ export interface ImageAttachment {
   mediaType: string; // e.g. image/jpeg, image/png
 }
 
+/**
+ * Helper function to build user content with optional image attachments.
+ * Normalizes the construction of user messages with text and optional image attachments across different AI providers.
+ */
+export function buildMultimodalUserContent<T>(
+  message: string,
+  imageAttachments: ImageAttachment[] | undefined,
+  imageMapper: (img: ImageAttachment) => T
+): string | Array<{ type: 'text'; text: string } | T> {
+  if (!imageAttachments || imageAttachments.length === 0) {
+    return message;
+  }
+  const parts: Array<{ type: 'text'; text: string } | T> = [];
+  if (message.trim()) {
+    parts.push({ type: 'text', text: message });
+  }
+  for (const img of imageAttachments) {
+    parts.push(imageMapper(img));
+  }
+  return parts;
+}
+
 // ============================================
 // Главная точка входа с failover
 // ============================================
@@ -108,23 +130,6 @@ type OpenAIMessage =
   | { role: 'assistant'; content: string; tool_calls: Array<{ id: string; type: 'function'; function: { name: string; arguments: string } }> }
   | { role: 'tool'; tool_call_id: string; content: string };
 
-function buildOpenAIUserContent(message: string, imageAttachments?: ImageAttachment[]): string | Array<{ type: 'text'; text: string } | { type: 'image_url'; image_url: { url: string } }> {
-  if (!imageAttachments || imageAttachments.length === 0) {
-    return message;
-  }
-  const parts: Array<{ type: 'text'; text: string } | { type: 'image_url'; image_url: { url: string } }> = [];
-  if (message.trim()) {
-    parts.push({ type: 'text', text: message });
-  }
-  for (const img of imageAttachments) {
-    parts.push({
-      type: 'image_url',
-      image_url: { url: `data:${img.mediaType};base64,${img.data}` },
-    });
-  }
-  return parts;
-}
-
 async function processWithOpenAI(
   message: string,
   modelConfig: ModelConfig,
@@ -141,6 +146,11 @@ async function processWithOpenAI(
 
   let messages: OpenAIMessage[] = [];
 
+  const openaiImageMapper = (img: ImageAttachment) => ({
+    type: 'image_url' as const,
+    image_url: { url: `data:${img.mediaType};base64,${img.data}` },
+  });
+
   if (contextMessages && contextMessages.length > 0) {
     const contextOnly = contextMessages.slice(0, -1);
     messages = contextOnly.map(msg => ({
@@ -148,14 +158,14 @@ async function processWithOpenAI(
       content: msg.content,
     })) as OpenAIMessage[];
 
-    const userContent = buildOpenAIUserContent(message, imageAttachments);
+    const userContent = buildMultimodalUserContent(message, imageAttachments, openaiImageMapper);
     messages.push({ role: 'user', content: userContent });
 
     console.log(`📚 Используется контекст: ${contextMessages.length} сообщений${hasImages ? ` + ${imageAttachments!.length} изображение(й)` : ''}`);
   } else {
     messages = [
       { role: 'system', content: getSystemPrompt() },
-      { role: 'user', content: buildOpenAIUserContent(message, imageAttachments) },
+      { role: 'user', content: buildMultimodalUserContent(message, imageAttachments, openaiImageMapper) },
     ];
   }
 
@@ -250,23 +260,6 @@ type AnthropicContentBlock =
   | { type: 'tool_result'; tool_use_id: string; content: string };
 type AnthropicMessage = { role: 'user' | 'assistant'; content: string | AnthropicContentBlock[] };
 
-function buildAnthropicUserContent(message: string, imageAttachments?: ImageAttachment[]): string | AnthropicContentBlock[] {
-  if (!imageAttachments || imageAttachments.length === 0) {
-    return message;
-  }
-  const blocks: AnthropicContentBlock[] = [];
-  if (message.trim()) {
-    blocks.push({ type: 'text', text: message });
-  }
-  for (const img of imageAttachments) {
-    blocks.push({
-      type: 'image',
-      source: { type: 'base64', media_type: img.mediaType, data: img.data },
-    });
-  }
-  return blocks;
-}
-
 async function processWithAnthropic(
   message: string,
   modelConfig: ModelConfig,
@@ -282,6 +275,11 @@ async function processWithAnthropic(
   let messages: AnthropicMessage[] = [];
   let systemPrompt: string | undefined = undefined;
 
+  const anthropicImageMapper = (img: ImageAttachment) => ({
+    type: 'image' as const,
+    source: { type: 'base64' as const, media_type: img.mediaType, data: img.data },
+  });
+
   if (contextMessages && contextMessages.length > 0) {
     const systemMsg = contextMessages.find(msg => msg.role === 'system');
     if (systemMsg) systemPrompt = systemMsg.content;
@@ -292,14 +290,14 @@ async function processWithAnthropic(
       content: msg.content,
     }));
 
-    const userContent = buildAnthropicUserContent(message, imageAttachments);
+    const userContent = buildMultimodalUserContent(message, imageAttachments, anthropicImageMapper);
     messages.push({ role: 'user', content: userContent });
 
     console.log(`📚 Используется контекст: ${contextMessages.length} сообщений${hasImages ? ` + ${imageAttachments!.length} изображение(й)` : ''}`);
   } else {
     systemPrompt = getSystemPrompt();
     messages = [
-      { role: 'user', content: buildAnthropicUserContent(message, imageAttachments) },
+      { role: 'user', content: buildMultimodalUserContent(message, imageAttachments, anthropicImageMapper) },
     ];
   }
 
