@@ -199,21 +199,47 @@ export function getActiveSessions(): Session[] {
 // СТАТИСТИКА
 // ============================================
 
+const STATS_CACHE_TTL = 5 * 60 * 1000; // 5 минут
+let statsCache: {
+  data: {
+    totalMessages: number;
+    totalUsers: number;
+    totalSessions: number;
+    activeSessions: number;
+  };
+  lastFetched: number;
+} | null = null;
+
 /**
  * Получить общую статистику БД
  */
 export function getDatabaseStats() {
+  const now = Date.now();
+
+  // Return cached data if valid
+  if (statsCache && (now - statsCache.lastFetched < STATS_CACHE_TTL)) {
+    return statsCache.data;
+  }
+
   const totalMessages = db.prepare('SELECT COUNT(*) as count FROM messages').get() as { count: number };
   const totalUsers = db.prepare('SELECT COUNT(*) as count FROM users').get() as { count: number };
   const totalSessions = db.prepare('SELECT COUNT(*) as count FROM sessions').get() as { count: number };
   const activeSessions = getActiveSessions().length;
 
-  return {
+  const data = {
     totalMessages: totalMessages.count,
     totalUsers: totalUsers.count,
     totalSessions: totalSessions.count,
     activeSessions,
   };
+
+  // Update cache
+  statsCache = {
+    data,
+    lastFetched: now,
+  };
+
+  return data;
 }
 
 // ============================================
