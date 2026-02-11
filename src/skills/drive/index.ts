@@ -150,51 +150,71 @@ function driveList(dirPath: string): string {
   }
 }
 
-function driveTree(dirPath: string, depthLimit: number = TREE_MAX_DEPTH): string {
+async function driveTree(dirPath: string, depthLimit: number = TREE_MAX_DEPTH): Promise<string> {
   try {
     const resolved = resolveInJailStrict(dirPath ?? '');
     if (!resolved) return 'Ошибка: путь вне корня диска или недопустим.';
-    if (!fs.existsSync(resolved)) return `Ошибка: директория не найдена: ${dirPath || '.'}`;
-    const stat = fs.statSync(resolved);
+    // Note: resolveInJailStrict uses synchronous realpathSync.
+    // For full async, we might want to refactor that too, but for now we focus on the tree walk.
+
+    // Check existence and type asynchronously where possible
+    try {
+      await fs.promises.access(resolved);
+    } catch {
+      return `Ошибка: директория не найдена: ${dirPath || '.'}`;
+    }
+
+    const stat = await fs.promises.stat(resolved);
     if (!stat.isDirectory()) return 'Ошибка: путь не является директорией.';
 
     const root = getDriveRoot();
     const relBase = path.relative(root, resolved) || '.';
 
-    function walk(dir: string, prefix: string, depth: number): string[] {
+    async function walk(dir: string, prefix: string, depth: number): Promise<string[]> {
       if (depth <= 0) return [];
-      const entries = fs.readdirSync(dir, { withFileTypes: true });
-      const lines: string[] = [];
+      let entries: fs.Dirent[];
+      try {
+        entries = await fs.promises.readdir(dir, { withFileTypes: true });
+      } catch {
+        return [`${prefix}[ERROR READING DIR]`];
+      }
+
       const sorted = entries.sort((a, b) => {
         if (a.isDirectory() && !b.isDirectory()) return -1;
         if (!a.isDirectory() && b.isDirectory()) return 1;
         return a.name.localeCompare(b.name);
       });
-      for (let i = 0; i < sorted.length; i++) {
-        const entry = sorted[i];
+
+      const results = await Promise.all(sorted.map(async (entry, i) => {
         const isLast = i === sorted.length - 1;
         const branch = isLast ? '└── ' : '├── ';
         const nextPrefix = isLast ? '    ' : '│   ';
         const full = path.join(dir, entry.name);
+        const entryLines: string[] = [];
+
         try {
-          const s = fs.statSync(full);
           if (entry.isDirectory()) {
-            lines.push(`${prefix}${branch}[DIR] ${entry.name}/`);
-            lines.push(...walk(full, prefix + nextPrefix, depth - 1));
+            entryLines.push(`${prefix}${branch}[DIR] ${entry.name}/`);
+            const children = await walk(full, prefix + nextPrefix, depth - 1);
+            entryLines.push(...children);
           } else {
-            lines.push(`${prefix}${branch}[FILE] ${entry.name} (${formatSize(s.size)})`);
+            // Need size for files
+            const s = await fs.promises.stat(full);
+            entryLines.push(`${prefix}${branch}[FILE] ${entry.name} (${formatSize(s.size)})`);
           }
         } catch {
-          lines.push(`${prefix}${branch}[???] ${entry.name}`);
+          entryLines.push(`${prefix}${branch}[???] ${entry.name}`);
         }
-      }
-      return lines;
+        return entryLines;
+      }));
+
+      return results.flat();
     }
 
-    let body = walk(resolved, '', depthLimit);
+    let body = await walk(resolved, '', depthLimit);
     if (relBase === '.' && body.length === 0) {
       ensureManifest();
-      body = walk(resolved, '', depthLimit);
+      body = await walk(resolved, '', depthLimit);
     }
     const header = `${relBase}/`;
     return [header, ...body].join('\n');
@@ -454,7 +474,7 @@ export class DriveSkill implements Skill {
       }
       case 'drive_tree': {
         const p = typeof args.path === 'string' ? args.path : '';
-        return driveTree(p);
+        return await driveTree(p);
       }
       case 'drive_read': {
         const p = typeof args.path === 'string' ? args.path : '';
