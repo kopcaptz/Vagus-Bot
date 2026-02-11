@@ -6,7 +6,18 @@
  */
 
 import type { Request, Response, NextFunction } from 'express';
+import { createHash, timingSafeEqual } from 'node:crypto';
 import { config } from '../config/config.js';
+
+function hashToken(token: string): Buffer {
+  return createHash('sha256').update(token, 'utf8').digest();
+}
+
+function safeTokenEquals(expected: string, provided: string): boolean {
+  const expectedHash = hashToken(expected);
+  const providedHash = hashToken(provided);
+  return timingSafeEqual(expectedHash, providedHash);
+}
 
 export function authMiddleware(req: Request, res: Response, next: NextFunction): void {
   const token = config.security.adminToken;
@@ -24,7 +35,7 @@ export function authMiddleware(req: Request, res: Response, next: NextFunction):
     (req.query.token as string) ||
     '';
 
-  if (provided === token) {
+  if (safeTokenEquals(token, provided)) {
     next();
     return;
   }
