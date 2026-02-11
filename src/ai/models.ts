@@ -212,7 +212,9 @@ async function processWithOpenAI(
           function: { name: tc.function?.name ?? '', arguments: tc.function?.arguments ?? '{}' },
         })),
       });
-      for (const tc of toolCalls) {
+
+      // --- OPTIMIZATION: PARALLEL EXECUTION ---
+      const toolResults = await Promise.all(toolCalls.map(async (tc: any) => {
         const name = tc.function?.name ?? '';
         const argsJson = tc.function?.arguments ?? '{}';
         let args: Record<string, unknown> = {};
@@ -223,8 +225,11 @@ async function processWithOpenAI(
         }
         await onStatus?.(`Использую ${name}...`);
         const result = await skillRegistry.executeTool(name, args);
-        messages.push({ role: 'tool', tool_call_id: tc.id, content: result });
-      }
+        return { role: 'tool', tool_call_id: tc.id, content: result };
+      }));
+      messages.push(...(toolResults as OpenAIMessage[]));
+      // ----------------------------------------
+
       iterations++;
       await onStatus?.(`Анализирую результаты (итерация ${iterations})...`);
       continue;
@@ -340,13 +345,16 @@ async function processWithAnthropic(
     const toolUses = content.filter((b: AnthropicContentBlock) => b.type === 'tool_use');
     if (tools && toolUses.length > 0 && iterations < config.ai.maxIterations) {
       messages.push({ role: 'assistant', content });
-      const toolResults: AnthropicContentBlock[] = [];
-      for (const tu of toolUses as Array<{ type: 'tool_use'; id: string; name: string; input: Record<string, unknown> }>) {
+
+      // --- OPTIMIZATION: PARALLEL EXECUTION ---
+      const toolResults = await Promise.all((toolUses as Array<{ type: 'tool_use'; id: string; name: string; input: Record<string, unknown> }>).map(async (tu) => {
         await onStatus?.(`Использую ${tu.name}...`);
         const result = await skillRegistry.executeTool(tu.name, tu.input ?? {});
-        toolResults.push({ type: 'tool_result', tool_use_id: tu.id, content: result });
-      }
+        return { type: 'tool_result', tool_use_id: tu.id, content: result } as AnthropicContentBlock;
+      }));
       messages.push({ role: 'user', content: toolResults });
+      // ----------------------------------------
+
       iterations++;
       await onStatus?.(`Анализирую результаты (итерация ${iterations})...`);
       continue;
