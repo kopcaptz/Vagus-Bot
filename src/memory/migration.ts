@@ -60,7 +60,7 @@ export async function runMigrationIfNeeded(userId: string): Promise<boolean> {
     const id = type === 'profile' ? generateFactId('pf') : type === 'working' ? generateFactId('wk') : generateFactId('ar');
     const fact: FactLine = { id, type, importance, expiresAt, text };
 
-    appendFact(userId, fact);
+    await appendFact(userId, fact);
 
     if (type === 'profile') profileCount++;
     else if (type === 'working') workingCount++;

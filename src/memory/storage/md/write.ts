@@ -35,11 +35,12 @@ function getPathForType(userId: string, type: FactType): string {
 /**
  * Append a fact to the appropriate .md file.
  */
-export function appendFact(userId: string, fact: FactLine): void {
-  ensureUserDir(userId);
+export async function appendFact(userId: string, fact: FactLine): Promise<void> {
+  const dir = getUserDir(userId);
+  await fs.promises.mkdir(dir, { recursive: true });
   const filePath = getPathForType(userId, fact.type);
   const line = formatFactLine(fact);
-  fs.appendFileSync(filePath, line, 'utf-8');
+  await fs.promises.appendFile(filePath, line, 'utf-8');
 }
 
 /**
