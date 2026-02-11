@@ -80,16 +80,18 @@ export function classifyFact(
   const profileKeywords = ['имя', 'зовут', 'я ', 'меня', 'предпочитаю', 'русский', 'английский', 'язык', 'работа', 'профессия', 'живу', 'живёт'];
   const workingKeywords = ['сейчас', 'ставим', 'чиним', 'задача', 'план', 'делаем', 'работаем над', 'текущ'];
 
-  for (const k of profileKeywords) {
-    if (lower.includes(k)) {
-      return { type: 'profile', importance: 'high', expiresAt: null };
-    }
-  }
+  // Check working keywords first (precedence over profile)
   for (const k of workingKeywords) {
     if (lower.includes(k)) {
       const d = new Date();
       d.setDate(d.getDate() + policy.workingDefaultDays);
       return { type: 'working', importance: 'normal', expiresAt: d.toISOString().slice(0, 10) };
+    }
+  }
+
+  for (const k of profileKeywords) {
+    if (lower.includes(k)) {
+      return { type: 'profile', importance: 'high', expiresAt: null };
     }
   }
 
