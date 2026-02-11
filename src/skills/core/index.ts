@@ -5,6 +5,7 @@
  */
 
 import fs from 'fs';
+import { promises as fsPromises } from 'fs';
 import path from 'path';
 import { execSync } from 'child_process';
 import { config } from '../../config/config.js';
@@ -99,13 +100,16 @@ function readFileSafe(filePath: string): string {
   return fs.readFileSync(filePath, { encoding: MAX_READ_ENCODING });
 }
 
-function writeFileSafe(filePath: string, content: string): string {
+
+async function writeFileSafeAsync(filePath: string, content: string): Promise<string> {
   const resolved = resolvePath(filePath);
   if (!resolved) return 'Ошибка: путь вне рабочей директории или недопустим.';
   const root = getWorkspaceRoot();
   const dir = path.dirname(resolved);
-  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-  fs.writeFileSync(resolved, content, 'utf-8');
+  // Ensure directory exists asynchronously
+  await fsPromises.mkdir(dir, { recursive: true });
+  // Write file asynchronously
+  await fsPromises.writeFile(resolved, content, 'utf-8');
   return `Файл записан: ${root ? path.relative(root, resolved) : resolved}`;
 }
 
@@ -246,7 +250,7 @@ export class CoreSkill implements Skill {
       case 'write_file': {
         const p = typeof args.path === 'string' ? args.path : String(args.path ?? '');
         const content = typeof args.content === 'string' ? args.content : String(args.content ?? '');
-        return writeFileSafe(p, content);
+        return writeFileSafeAsync(p, content);
       }
 
       case 'list_dir': {
