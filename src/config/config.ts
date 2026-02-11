@@ -57,6 +57,19 @@ export const config = {
     workspaceRoot: getEnvValue('WORKSPACE_ROOT') || '',
     commandTimeoutMs: Math.max(5000, parseInt(getEnvValue('TOOL_COMMAND_TIMEOUT_MS', '15000'), 10) || 15000),
   },
+  skillGateway: {
+    enabled: getEnvValue('SKILL_GATEWAY_ENABLED', 'false').toLowerCase() === 'true',
+    killSwitch: getEnvValue('SKILL_GATEWAY_KILL', '').toLowerCase() === '1' || getEnvValue('SKILL_GATEWAY_KILL', '').toLowerCase() === 'true',
+    requestTimeoutMs: Math.max(1000, parseInt(getEnvValue('SKILL_GATEWAY_REQUEST_TIMEOUT_MS', '10000'), 10) || 10000),
+    allowedProtocols: (getEnvValue('SKILL_GATEWAY_ALLOWED_PROTOCOLS', 'https') || 'https')
+      .split(',')
+      .map(s => s.trim().toLowerCase())
+      .filter(Boolean),
+    registryPath: getEnvValue('SKILL_GATEWAY_REGISTRY_PATH', './config/skill-gateway.registry.json'),
+    protocolVersion: getEnvValue('SKILL_GATEWAY_PROTOCOL_VERSION', '1.0'),
+    timestampSkewSeconds: Math.max(0, parseInt(getEnvValue('SKILL_GATEWAY_TIMESTAMP_SKEW_SECONDS', '120'), 10) || 120),
+    nonceTtlSeconds: Math.max(1, parseInt(getEnvValue('SKILL_GATEWAY_NONCE_TTL_SECONDS', '300'), 10) || 300),
+  },
   security: {
     adminToken: getEnvValue('ADMIN_TOKEN') || '',
     telegramAllowlist: (getEnvValue('TELEGRAM_ALLOWLIST') || '')
@@ -72,7 +85,7 @@ export const config = {
   },
   drive: {
     // Windows: normalize so path works with fs (handles "Мой диск" space); exact path as in Explorer
-    root: getEnvValue('DRIVE_ROOT') || (process.platform === 'win32' ? path.normalize('G:/Мой диск/Vagus-Bot') : '/app/drive'),
+    root: getEnvValue('DRIVE_ROOT') || getEnvValue('VAGUS_DRIVE_HOST') || (process.platform === 'win32' ? path.normalize('G:/Мой диск/Vagus-Bot') : '/app/drive'),
   },
   embeddings: {
     baseUrl: getEnvValue('EMBEDDINGS_BASE_URL') || getEnvValue('BASE_URL') || 'https://openrouter.ai/api/v1',
@@ -86,6 +99,7 @@ export const config = {
     const valid: OpenRouterTier[] = ['FREE', 'BUDGET', 'PRO_CODE', 'FRONTIER', 'FREE_TOP'];
     return valid.includes(v as OpenRouterTier) ? (v as AIModel) : 'BUDGET';
   })(),
+<<<<<<< HEAD
   /** Google OAuth config */
   googleOAuth: {
     clientId: getEnvValue('GOOGLE_OAUTH_CLIENT_ID'),
@@ -93,6 +107,10 @@ export const config = {
     redirectUri: getEnvValue('GOOGLE_OAUTH_REDIRECT_URI'),
     /** Default Gemini model when using Google OAuth */
     defaultModel: getEnvValue('GOOGLE_GEMINI_MODEL', 'gemini-2.0-flash'),
+=======
+  modelRouter: {
+    enabled: getEnvValue('MODEL_ROUTER_ENABLED', 'false').toLowerCase() === 'true',
+>>>>>>> 4487979 (feat: implement dashboard i18n, model router, and secure skill gateway)
   },
 };
 
@@ -202,9 +220,14 @@ export function getModelConfig(): ModelConfig {
   if (selectedModel === 'none') {
     return { provider: 'none', model: 'none', apiKey: '', authProvider: 'openrouter_key' };
   }
+  return getModelConfigForTier(selectedModel as OpenRouterTier);
+}
+
+/** Конфигурация для конкретного tier (для model router override). */
+export function getModelConfigForTier(tier: OpenRouterTier): ModelConfig {
   return {
     provider: 'openai',
-    model: OPENROUTER_MODEL_TIERS[selectedModel],
+    model: OPENROUTER_MODEL_TIERS[tier],
     apiKey: config.ai.openrouterKey,
     baseUrl: config.ai.baseUrl,
     authProvider: 'openrouter_key',

@@ -6,10 +6,11 @@
  */
 
 import path from 'path';
+import fs from 'fs';
 import { spawn } from 'child_process';
 import type { Skill, ToolDefinition } from '../types.js';
 import type { CliRequest, CliResponseOk, CliResponseError } from './types.js';
-import { cliGatewayConfig } from './config.js';
+import { cliGatewayConfig, getChildProcessEnv, isKillSwitchActive } from './config.js';
 import { resolveExecutable, TRUSTED_PATH_VIOLATION } from './path-resolver.js';
 import { scrubSecrets } from './sanitizer.js';
 import { addToken, consumeToken } from './confirmation.js';
@@ -23,6 +24,7 @@ const TOOL_CONFIRM = 'system_cli_gateway_confirm';
 const TOOL_STATUS  = 'system_cli_gateway_status';
 
 const LOG_PREFIX = '[cli-gateway]';
+const FORBIDDEN_ARG_PATTERN = /(?:&&|\|\||\||;|`|\$\(|>>|>|\n|\r)/;
 
 // ============================================
 // Валидация входных данных
@@ -125,6 +127,10 @@ function validateCliRequest(args: Record<string, unknown>): ValidationResult {
   };
 }
 
+function hasForbiddenShellSyntax(args: string[]): boolean {
+  return args.some(arg => FORBIDDEN_ARG_PATTERN.test(arg));
+}
+
 /**
  * Валидирует аргументы для system_cli_gateway_confirm.
  */
@@ -177,7 +183,9 @@ function isCommandInConfirmList(executable: string, args: string[]): boolean {
 /** Разрешена ли команда в текущем режиме без токена (SAFE или LIMITED список). */
 function isAllowedWithoutToken(mode: string, executable: string, args: string[]): boolean {
   if (mode === 'SAFE') return isCommandInSafeList(executable, args);
-  if (mode === 'LIMITED' || mode === 'CONFIRM') return isCommandInSafeList(executable, args) || isCommandInLimitedList(executable, args);
+  if (mode === 'LIMITED' || mode === 'CONFIRM') {
+    return isCommandInSafeList(executable, args) || isCommandInLimitedList(executable, args);
+  }
   return false;
 }
 
@@ -190,14 +198,16 @@ function needsConfirmation(mode: string, executable: string, args: string[]): bo
 function resolveCwd(cwd: string): { ok: true; path: string } | { ok: false; error: CliResponseError } {
   const projectRoot = cliGatewayConfig.projectRoot;
   const resolved = path.resolve(projectRoot, cwd);
-  const relative = path.relative(projectRoot, resolved);
+  const rootReal = fs.existsSync(projectRoot) ? fs.realpathSync(projectRoot) : projectRoot;
+  const resolvedReal = fs.existsSync(resolved) ? fs.realpathSync(resolved) : resolved;
+  const relative = path.relative(rootReal, resolvedReal);
   if (relative.startsWith('..') || path.isAbsolute(relative)) {
     return {
       ok: false,
       error: makeErrorResponse('CWD_OUTSIDE_SANDBOX', `Working directory must be inside project root: ${projectRoot}`),
     };
   }
-  return { ok: true, path: resolved };
+  return { ok: true, path: resolvedReal };
 }
 
 /**
@@ -215,7 +225,9 @@ function runCommand(
     const child = spawn(binaryPath, args, {
       cwd,
       shell: false,
+      windowsHide: true,
       timeout: timeoutMs,
+      env: getChildProcessEnv(),
     });
 
     let stdout = '';
@@ -352,6 +364,11 @@ export class CliGatewaySkill implements Skill {
         const req = validation.request;
         const cfg = cliGatewayConfig;
 
+        if (isKillSwitchActive()) {
+          const err = makeErrorResponse('KILL_SWITCH_ACTIVE', 'CLI Gateway is disabled (STOP.flag detected or CLI_GATEWAY_KILL=1).');
+          return JSON.stringify(err, null, 2);
+        }
+
         if (cfg.mode === 'OFF') {
           const err = makeErrorResponse('MODE_OFF', 'CLI Gateway is OFF. No commands are executed.');
           return JSON.stringify(err, null, 2);
@@ -361,6 +378,22 @@ export class CliGatewaySkill implements Skill {
           const err = makeErrorResponse('EXECUTABLE_NOT_ALLOWED', `Executable "${req.executable}" is not in allowlist.`, {
             allowed: Object.keys(cfg.allowlist),
           });
+          return JSON.stringify(err, null, 2);
+        }
+        const executableDef = cfg.allowlist[req.executable];
+        if (!executableDef.modes.includes(cfg.mode as 'SAFE' | 'LIMITED' | 'CONFIRM')) {
+          const err = makeErrorResponse(
+            'COMMAND_NOT_ALLOWED',
+            `Executable "${req.executable}" is not allowed in mode ${cfg.mode}.`,
+          );
+          return JSON.stringify(err, null, 2);
+        }
+
+        if (hasForbiddenShellSyntax(req.args)) {
+          const err = makeErrorResponse(
+            'SHELL_INJECTION_DETECTED',
+            'Arguments contain forbidden shell operators or control characters.',
+          );
           return JSON.stringify(err, null, 2);
         }
 
@@ -390,10 +423,14 @@ export class CliGatewaySkill implements Skill {
             });
             return JSON.stringify(err, null, 2);
           }
-          if (!consumeToken(req.confirm_token.trim())) {
+          const tokenTrimmed = req.confirm_token.trim();
+          console.log(`[CLI Gateway] Checking token: ${tokenTrimmed.substring(0, 8)}...`);
+          if (!consumeToken(tokenTrimmed)) {
+            console.log('❌ [CLI Gateway] Token INVALID or EXPIRED.');
             const err = makeErrorResponse('INVALID_CONFIRM_TOKEN', 'Token is invalid or expired. Request a new one.');
             return JSON.stringify(err, null, 2);
           }
+          console.log('✅ [CLI Gateway] Token VALID. Executing command:', req.executable, req.args.join(' '));
         }
 
         const cwdResult = resolveCwd(req.cwd);
@@ -429,6 +466,10 @@ export class CliGatewaySkill implements Skill {
           const scrubbedStdout = scrubSecrets(stdout);
           const scrubbedStderr = scrubSecrets(stderr);
           console.log(`${LOG_PREFIX} Exit ${exitCode} in ${durationMs}ms. stdout (scrubbed):`, scrubbedStdout.slice(0, 200));
+          if (exitCode !== 0 || scrubbedStderr.trim() !== '') {
+            console.log('[CLI Gateway] Exit code:', exitCode);
+            if (scrubbedStderr.trim()) console.log('[CLI Gateway] stderr:', scrubbedStderr);
+          }
 
           const okResponse: CliResponseOk = {
             ok: true,
@@ -439,8 +480,11 @@ export class CliGatewaySkill implements Skill {
           };
           return JSON.stringify(okResponse, null, 2);
         } catch (err: unknown) {
+          console.error('[CLI Gateway] Command execution failed:', err instanceof Error ? err.message : String(err));
+          if (err instanceof Error && err.stack) console.error(err.stack);
           const isTimeout = (err as { code?: string })?.code === 'ETIMEDOUT' || (err as { killed?: boolean })?.killed;
           if (isTimeout) {
+            console.error(`[CLI Gateway] Command timed out after ${cfg.timeoutMs}ms.`);
             return JSON.stringify(makeErrorResponse('TIMEOUT', `Command timed out after ${cfg.timeoutMs}ms.`), null, 2);
           }
           const msg = err instanceof Error ? err.message : String(err);
@@ -461,11 +505,14 @@ export class CliGatewaySkill implements Skill {
 
         console.log(`${LOG_PREFIX} Confirm token received: ${validation.token.substring(0, 8)}...`);
 
-        // Фаза 1: всегда BLOCKED
-        const response = makeBlockedResponse(
-          'Phase 1 stub. Confirmation token validation is not implemented yet.',
+        return JSON.stringify(
+          makeErrorResponse(
+            'NOT_IMPLEMENTED',
+            'Use system_cli_gateway with confirm_token in the same command retry flow.',
+          ),
+          null,
+          2,
         );
-        return JSON.stringify(response, null, 2);
       }
 
       // ────────────────────────────────────

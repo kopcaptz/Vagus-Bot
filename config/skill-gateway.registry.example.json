@@ -1,0 +1,16 @@
+{
+  "skills": [
+    {
+      "skill_id": "demo.echo",
+      "base_url": "http://127.0.0.1:4050",
+      "auth": {
+        "type": "hmac",
+        "header_name": "X-Skill-Signature",
+        "secret_env_key": "DEMO_SKILL_HMAC_SECRET"
+      },
+      "allowlist_capabilities": ["demo.echo"],
+      "rate_limit_per_minute": 60,
+      "timeout_ms": 5000
+    }
+  ]
+}

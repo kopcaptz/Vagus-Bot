@@ -12,6 +12,7 @@ import { MemorySkill } from './skills/memory/index.js';
 import { SandboxSkill } from './skills/sandbox/index.js';
 import { BrowserSkill } from './skills/browser/index.js';
 import { CliGatewaySkill } from './skills/cli-gateway/index.js';
+import { createRemoteGatewaySkill } from './skills/remote-gateway/index.js';
 import { startWebServer } from './server/web.js';
 import { config, ensureDefaultModel, getSelectedModel, getSelectedAuthProvider } from './config/config.js';
 import { initDatabase } from './db/database.js';
@@ -72,19 +73,31 @@ async function main() {
     skillRegistry.register(new SandboxSkill());
     skillRegistry.register(new BrowserSkill());
     skillRegistry.register(new CliGatewaySkill());
+    console.log(`[remote_gateway] remote_gateway enabled=${config.skillGateway.enabled}`);
+    console.log(`[remote_gateway] remote_gateway kill_switch=${config.skillGateway.killSwitch}`);
+    const remoteGatewaySkill = await createRemoteGatewaySkill();
+    if (remoteGatewaySkill) {
+      skillRegistry.register(remoteGatewaySkill);
+      console.log('🔌 Remote Skill Gateway: enabled');
+    } else {
+      console.log('🔌 Remote Skill Gateway: disabled or no skills discovered');
+    }
     if (process.env.TAVILY_API_KEY) {
       skillRegistry.register(new WebSearchSkill());
     }
   }
   const driveRoot = config.drive.root;
   const resolvedDriveRoot = path.resolve(driveRoot);
-  console.log('Checking path:', resolvedDriveRoot);
-  console.log('Path exists:', fs.existsSync(resolvedDriveRoot));
-  if (process.env.DRIVE_ROOT || (driveRoot && fs.existsSync(resolvedDriveRoot) && fs.statSync(resolvedDriveRoot).isDirectory())) {
+  const hasDriveEnv = process.env.DRIVE_ROOT || process.env.VAGUS_DRIVE_HOST;
+  if (hasDriveEnv && !fs.existsSync(resolvedDriveRoot)) {
+    fs.mkdirSync(resolvedDriveRoot, { recursive: true });
+    console.log('Drive: папка создана:', resolvedDriveRoot);
+  }
+  if (hasDriveEnv || (driveRoot && fs.existsSync(resolvedDriveRoot) && fs.statSync(resolvedDriveRoot).isDirectory())) {
     skillRegistry.register(new DriveSkill());
     skillRegistry.register(new LibrarianSkill());
   }
-  if (process.env.DRIVE_ROOT || driveRoot) {
+  if (hasDriveEnv || driveRoot) {
     if (!fs.existsSync(resolvedDriveRoot)) {
       console.warn('WARNING: Drive root path is set but does not exist or is not a directory. Check the path (e.g. G: drive mounted, "Мой диск" folder present).');
     } else if (!fs.statSync(resolvedDriveRoot).isDirectory()) {

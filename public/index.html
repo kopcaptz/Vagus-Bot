@@ -7,11 +7,15 @@
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
-    <div class="container">
-        <header>
-            <h1>🤖 Vagus Bot</h1>
-            <p>Панель управления ботом</p>
+    <div class="shell">
+        <header class="topbar">
+            <h1 class="topbar-title" data-i18n="title">Vagus Bot</h1>
+            <div class="topbar-lang">
+                <button type="button" class="lang-btn" data-lang="en">EN</button>
+                <button type="button" class="lang-btn" data-lang="ru">RU</button>
+            </div>
         </header>
+<<<<<<< HEAD
 
         <div class="stats-card">
             <h2>📊 Статистика</h2>
@@ -84,38 +88,193 @@
                 <div style="display: flex; gap: 10px;">
                     <button onclick="selectPersona()" style="flex: 1;">Применить личность</button>
                     <button onclick="togglePersonaEditor()" style="flex: 1; background: #6c757d;">⚙️ Редактировать</button>
+=======
+        <nav class="nav">
+            <a href="#" class="nav-link active" data-view="stats" data-i18n="nav.stats">Статистика</a>
+            <a href="#" class="nav-link" data-view="send" data-i18n="nav.send">Отправить</a>
+            <a href="#" class="nav-link" data-view="models" data-i18n="nav.models">Модели и личности</a>
+            <a href="#" class="nav-link" data-view="context" data-i18n="nav.context">Контекст</a>
+            <a href="#" class="nav-link" data-view="history" data-i18n="nav.history">История</a>
+            <a href="#" class="nav-link" data-view="info" data-i18n="nav.info">Информация</a>
+        </nav>
+        <main class="content">
+            <!-- Stats -->
+            <section id="view-stats" class="view view-active">
+                <div class="card stats-card">
+                    <h2 data-i18n="stats.title">📊 Статистика</h2>
+                    <div id="stats"><p data-i18n="msg.loading">Загрузка...</p></div>
+                    <button type="button" onclick="loadStats()" data-i18n="stats.refresh">🔄 Обновить</button>
+>>>>>>> 4487979 (feat: implement dashboard i18n, model router, and secure skill gateway)
                 </div>
-            </div>
-            <div id="personaEditor" style="margin-top: 15px; display: none;">
-                <div style="margin-bottom: 10px;">
-                    <label style="display: block; margin-bottom: 5px; font-weight: bold;">Имя личности</label>
-                    <input type="text" id="personaName" placeholder="Например: Инженер Solar" style="width: 100%; padding: 10px;">
+            </section>
+            <!-- Send -->
+            <section id="view-send" class="view">
+                <div class="card send-card">
+                    <h2 data-i18n="send.title">📤 Отправить сообщение</h2>
+                    <p id="telegramSendHint" data-i18n="msg.loading">Загрузка…</p>
+                    <form id="sendForm">
+                        <input type="text" id="chatId" data-i18n-placeholder="send.chatId" placeholder="Chat ID" required>
+                        <textarea id="message" data-i18n-placeholder="send.message" placeholder="Сообщение" required></textarea>
+                        <button type="submit" data-i18n="send.submit">Отправить</button>
+                    </form>
+                    <div id="result"></div>
                 </div>
-                <div style="margin-bottom: 10px;">
-                    <label style="display: block; margin-bottom: 5px; font-weight: bold;">System Prompt</label>
-                    <textarea id="personaPrompt" rows="6" placeholder="Опиши стиль и поведение личности..." style="width: 100%; padding: 10px;"></textarea>
+            </section>
+            <!-- Models & Personas -->
+            <section id="view-models" class="view">
+                <div class="card model-card">
+                    <h2 data-i18n="models.title">🤖 Выбор AI модели</h2>
+                    <div id="modelInfo"><p data-i18n="msg.loading">Загрузка...</p></div>
+                    <div class="model-selector">
+                        <select id="modelSelect">
+                            <option value="none" data-i18n="msg.loading">Загрузка...</option>
+                        </select>
+                        <button type="button" onclick="selectModel()" data-i18n="models.selectModel">Выбрать модель</button>
+                    </div>
+                    <div class="persona-selector">
+                        <label data-i18n="models.personaLabel">🎭 Выберите Личность</label>
+                        <select id="personaSelect">
+                            <option value="default" data-i18n="models.defaultPersona">По умолчанию</option>
+                        </select>
+                        <div class="persona-actions">
+                            <button type="button" onclick="selectPersona()" data-i18n="models.applyPersona">Применить личность</button>
+                            <button type="button" onclick="togglePersonaEditor()" class="btn-secondary" data-i18n="models.editPersona">⚙️ Редактировать</button>
+                        </div>
+                    </div>
+                    <div id="personaEditor" class="persona-editor" style="display: none;">
+                        <div class="form-group">
+                            <label data-i18n="models.personaName">Имя личности</label>
+                            <input type="text" id="personaName" data-i18n-placeholder="models.personaNamePlaceholder" placeholder="Например: Инженер Solar">
+                        </div>
+                        <div class="form-group">
+                            <label data-i18n="models.systemPrompt">System Prompt</label>
+                            <textarea id="personaPrompt" rows="6" data-i18n-placeholder="models.personaPromptPlaceholder" placeholder="Опиши стиль и поведение личности..."></textarea>
+                        </div>
+                        <div class="persona-editor-actions">
+                            <button type="button" onclick="savePersona(false)" class="btn-success" data-i18n="models.save">Сохранить</button>
+                            <button type="button" onclick="savePersona(true)" class="btn-info" data-i18n="models.saveAsNew">Сохранить как новую</button>
+                            <button type="button" onclick="deletePersona()" class="btn-danger" data-i18n="models.delete">Удалить</button>
+                        </div>
+                        <div id="personaEditorStatus"></div>
+                    </div>
+                    <div id="modelTest" class="model-test">
+                        <h3 data-i18n="models.testAi">Тест AI</h3>
+                        <div class="context-warning">
+                            <strong data-i18n="models.contextWarning">⚠️ ВАЖНО для контекста:</strong><br>
+                            <strong>1.</strong> <span data-i18n="models.contextStep1">Сначала создайте историю:</span> <code>npx tsx test-context-simple.js</code><br>
+                            <strong>2.</strong> <span data-i18n="models.contextStep2">Укажите Chat ID:</span> <code>test_simple_context</code><br>
+                            <strong>3.</strong> <span data-i18n="models.contextStep3">Задайте вопрос:</span> "Какой код доступа я назвал?"<br>
+                            <strong data-i18n="models.contextNoChatId">Без Chat ID контекст НЕ работает!</strong>
+                        </div>
+                        <div class="form-group">
+                            <label><span data-i18n="models.testChatIdLabel">Chat ID (обязательно для контекста):</span> <span class="required">*</span></label>
+                            <input type="text" id="testChatId" data-i18n-placeholder="models.testChatIdPlaceholder" placeholder="test_simple_context" class="test-chat-input">
+                            <small data-i18n="models.testChatIdHint">Запустите тестовый скрипт для создания истории</small>
+                        </div>
+                        <div class="form-group">
+                            <label data-i18n="models.testMessageLabel">Сообщение:</label>
+                            <input type="text" id="testMessage" data-i18n-placeholder="models.testMessagePlaceholder" placeholder="Какой код доступа я назвал?">
+                        </div>
+                        <div class="form-group">
+                            <label data-i18n="models.imagesLabel">📷 Изображения (Vision):</label>
+                            <input type="file" id="testImages" accept="image/*" multiple>
+                            <small data-i18n="models.imagesHint">До 5 изображений, до 5 MB каждое</small>
+                        </div>
+                        <div class="form-group">
+                            <label data-i18n="models.testRoleLabel">Кто отправляет сообщение:</label>
+                            <select id="testRole">
+                                <option value="user" data-i18n="models.roleUser">Пользователь</option>
+                                <option value="assistant" data-i18n="models.roleBot">Бот</option>
+                            </select>
+                        </div>
+                        <div class="test-actions">
+                            <button type="button" onclick="addToHistory()" class="btn-success" data-i18n="models.addToHistory">Добавить в историю</button>
+                            <button type="button" onclick="testAI()" data-i18n="models.test">Протестировать</button>
+                        </div>
+                        <div id="testResult"></div>
+                    </div>
                 </div>
-                <div style="display: flex; gap: 10px;">
-                    <button onclick="savePersona(false)" style="flex: 1; background: #28a745;">Сохранить</button>
-                    <button onclick="savePersona(true)" style="flex: 1; background: #17a2b8;">Сохранить как новую</button>
-                    <button onclick="deletePersona()" style="flex: 1; background: #dc3545;">Удалить</button>
+            </section>
+            <!-- Context -->
+            <section id="view-context" class="view">
+                <div class="card context-card">
+                    <h2 data-i18n="context.title">🧠 Контекстная память</h2>
+                    <div id="contextConfig"><p data-i18n="msg.loading">Загрузка...</p></div>
+                    <div class="context-settings">
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="contextEnabled">
+                            <span data-i18n="context.enabled">Включить контекстную память</span>
+                        </label>
+                        <div class="form-group">
+                            <label data-i18n="context.maxMessages">Максимум сообщений в контексте:</label>
+                            <input type="number" id="contextMaxMessages" min="1" max="50" value="10">
+                        </div>
+                        <div class="form-group">
+                            <label data-i18n="context.maxTokens">Максимум токенов (приблизительно):</label>
+                            <input type="number" id="contextMaxTokens" min="100" max="10000" value="2000">
+                        </div>
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="contextSystemPrompt">
+                            <span data-i18n="context.includeSystemPrompt">Включать системный промпт</span>
+                        </label>
+                        <button type="button" onclick="saveContextConfig()" data-i18n="context.saveSettings">💾 Сохранить настройки</button>
+                    </div>
+                    <div class="context-preview">
+                        <h3 data-i18n="context.preview">Предпросмотр контекста</h3>
+                        <div class="context-preview-pair">
+                            <input type="text" id="contextPreviewChatId" data-i18n-placeholder="context.previewPlaceholder" placeholder="Chat ID для предпросмотра">
+                            <button type="button" onclick="previewContext()" data-i18n="context.show">Показать</button>
+                        </div>
+                        <div id="contextPreviewContent"></div>
+                    </div>
                 </div>
-                <div id="personaEditorStatus" style="margin-top: 10px;"></div>
-            </div>
-            <div id="modelTest" style="margin-top: 15px;">
-                <h3>Тест AI</h3>
-                <div style="background: #fff3cd; padding: 10px; border-radius: 6px; margin-bottom: 10px; font-size: 0.85em; border-left: 4px solid #ffc107;">
-                    <strong>⚠️ ВАЖНО для контекста:</strong><br>
-                    <strong>1. Сначала создайте историю:</strong> Запустите <code>npx tsx test-context-simple.js</code><br>
-                    <strong>2. Укажите Chat ID:</strong> <code>test_simple_context</code> (из тестового скрипта)<br>
-                    <strong>3. Задайте вопрос:</strong> "Какой код доступа я назвал?"<br>
-                    <strong>Без Chat ID контекст НЕ работает!</strong>
+            </section>
+            <!-- History -->
+            <section id="view-history" class="view">
+                <div class="card history-card">
+                    <h2 data-i18n="history.title">📜 История сообщений</h2>
+                    <div class="form-group">
+                        <label data-i18n="history.chatIdLabel">Chat ID:</label>
+                        <input type="text" id="historychatId" data-i18n-placeholder="history.chatIdPlaceholder" placeholder="web_test_1">
+                    </div>
+                    <div class="history-controls">
+                        <input type="text" id="history-search" data-i18n-placeholder="history.searchPlaceholder" placeholder="🔍 Поиск по тексту...">
+                        <select id="history-role">
+                            <option value="" data-i18n="history.allRoles">Все роли</option>
+                            <option value="user" data-i18n="history.roleUser">👤 Пользователь</option>
+                            <option value="bot" data-i18n="history.roleBot">🤖 Бот</option>
+                        </select>
+                        <button type="button" onclick="loadHistory()" data-i18n="history.refresh">🔄 Обновить</button>
+                        <button type="button" onclick="clearCurrentChat()" class="danger" data-i18n="history.clearChat">🗑 Очистить чат</button>
+                        <button type="button" onclick="exportHistory()" class="success" data-i18n="history.exportJson">💾 JSON</button>
+                    </div>
+                    <div id="history-list" class="history-container">
+                        <div class="history-empty" data-i18n="history.empty">Выберите чат или введите ID для просмотра</div>
+                    </div>
+                    <div class="history-pagination" id="history-pagination"></div>
                 </div>
-                <div style="margin-bottom: 10px;">
-                    <label style="display: block; margin-bottom: 5px; font-weight: bold;">Chat ID <span style="color: red;">*</span> (обязательно для контекста):</label>
-                    <input type="text" id="testChatId" placeholder="test_simple_context" style="width: 100%; padding: 10px; border: 2px solid #ffc107;">
-                    <small style="color: #666; font-size: 0.85em;">Запустите тестовый скрипт для создания истории</small>
+            </section>
+            <!-- Info -->
+            <section id="view-info" class="view">
+                <div class="card info-card">
+                    <h2 data-i18n="info.title">ℹ️ Информация</h2>
+                    <p data-i18n="info.description">Это простой бот с возможностью расширения.</p>
+                    <p><strong data-i18n="info.available">Доступно:</strong></p>
+                    <ul>
+                        <li>✅ <span data-i18n="info.aiProcessing">AI обработка сообщений (OpenAI, Anthropic)</span></li>
+                        <li>✅ <span data-i18n="info.modelSelection">Выбор моделей через веб-интерфейс</span></li>
+                        <li>✅ <span data-i18n="info.database">База данных для истории сообщений</span></li>
+                        <li>✅ <span data-i18n="info.contextMemory">Контекстная память для улучшения ответов</span></li>
+                        <li>✅ <span data-i18n="info.localAccess">Доступ из локальной сети</span></li>
+                    </ul>
+                    <p><strong data-i18n="info.future">В будущем можно добавить:</strong></p>
+                    <ul>
+                        <li data-i18n="info.futureChannels">Дополнительные каналы (WhatsApp, Discord)</li>
+                        <li data-i18n="info.futurePersonalization">Персонализация ответов на основе истории</li>
+                        <li data-i18n="info.futurePlugins">Плагины и расширения</li>
+                    </ul>
                 </div>
+<<<<<<< HEAD
                 <div style="margin-bottom: 10px;">
                     <label style="display: block; margin-bottom: 5px; font-weight: bold;">Сообщение:</label>
                     <input type="text" id="testMessage" placeholder="Какой код доступа я назвал?" style="width: 100%; padding: 10px;">
@@ -219,8 +378,13 @@
                 <li>⚡ <strong>Google OAuth</strong> — Gemini Preview бесплатно (OAuth)</li>
             </ul>
         </div>
+=======
+            </section>
+        </main>
+>>>>>>> 4487979 (feat: implement dashboard i18n, model router, and secure skill gateway)
     </div>
 
+    <script src="i18n.js"></script>
     <script src="app.js"></script>
 </body>
 </html>

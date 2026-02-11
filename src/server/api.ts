@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 import { Router, Response } from 'express';
 import multer from 'multer';
 import { readFile, unlink } from 'node:fs/promises';
@@ -11,6 +12,13 @@ import {
 } from '../config/config.js';
 import type { AuthProviderId } from '../config/providers.js';
 import { MODEL_CATALOG, getModelsForProvider, getRecommendedModel } from '../config/providers.js';
+=======
+import path from 'path';
+import { Router } from 'express';
+import multer from 'multer';
+import { config, getSelectedModel, setSelectedModel, getModelConfig, OPENROUTER_MODEL_TIERS, type AIModel } from '../config/config.js';
+import { skillRegistry } from '../skills/registry.js';
+>>>>>>> 4487979 (feat: implement dashboard i18n, model router, and secure skill gateway)
 import type { ImageAttachment } from '../ai/models.js';
 import type { IncomingMessage } from '../channels/types.js';
 import { channelRegistry } from '../channels/registry.js';
@@ -111,27 +119,52 @@ export function createApiRouter() {
         stats.telegram = { enabled: false, message: 'Telegram канал не зарегистрирован.' };
       }
 
+      try {
+        const driveSkill = skillRegistry?.list?.()?.find?.((s: { id: string }) => s.id === 'drive');
+        stats.drive = {
+          enabled: !!driveSkill,
+          root: driveSkill && config?.drive?.root ? path.resolve(config.drive.root) : undefined,
+        };
+      } catch (driveErr) {
+        console.error('API /api/stats drive block:', driveErr);
+        stats.drive = { enabled: false, root: undefined };
+      }
+
       res.json(stats);
     } catch (error) {
-      res.status(500).json({ error: 'Ошибка получения статистики' });
+      console.error('API /api/stats Error:', error);
+      res.status(500).json({ error: 'Internal Server Error' });
     }
   });
 
   // ============================================
   // AI МОДЕЛИ
   // ============================================
+  const MODEL_DISPLAY_NAMES: Record<string, string> = {
+    none: 'Без AI',
+    FREE: 'Gemini 2.0 Flash (Free)',
+    BUDGET: 'DeepSeek Chat',
+    PRO_CODE: 'Claude 3.5 Sonnet',
+    FRONTIER: 'Claude 3.7 Sonnet',
+    FREE_TOP: 'Kimi K2.5 (Free)',
+  };
+
   router.get('/api/models', (req, res) => {
     const modelConfig = getModelConfig();
+<<<<<<< HEAD
     const authProvider = getSelectedAuthProvider();
+=======
+    const available = [
+      { id: 'none' as const, name: MODEL_DISPLAY_NAMES.none, provider: 'none' as const },
+      ...(Object.keys(OPENROUTER_MODEL_TIERS) as (keyof typeof OPENROUTER_MODEL_TIERS)[]).map(id => ({
+        id,
+        name: MODEL_DISPLAY_NAMES[id] || id,
+        provider: 'openai' as const,
+      })),
+    ];
+>>>>>>> 4487979 (feat: implement dashboard i18n, model router, and secure skill gateway)
     res.json({
-      available: [
-        { id: 'none', name: 'Без AI', provider: 'none' },
-        { id: 'FREE', name: 'Gemini 2.0 Flash (Free)', provider: 'openai' },
-        { id: 'BUDGET', name: 'DeepSeek Chat', provider: 'openai' },
-        { id: 'PRO_CODE', name: 'Claude 3.5 Sonnet', provider: 'openai' },
-        { id: 'FRONTIER', name: 'Claude 3.7 Sonnet', provider: 'openai' },
-        { id: 'FREE_TOP', name: 'Kimi K2.5 (Free)', provider: 'openai' },
-      ],
+      available,
       selected: getSelectedModel(),
       authProvider,
       config: modelConfig.provider !== 'none' ? {

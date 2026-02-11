@@ -9,7 +9,8 @@
 import type { IncomingMessage, MessageResult } from './types.js';
 import type { ImageAttachment } from '../ai/models.js';
 import { processWithAI } from '../ai/models.js';
-import { getSelectedModel, getModelConfig } from '../config/config.js';
+import { selectModelForTask } from '../ai/model-router.js';
+import { config, getSelectedModel, getModelConfig, type OpenRouterTier } from '../config/config.js';
 import { getContextConfig } from '../config/context.js';
 import { getSelectedPersona, getPersonas } from '../config/personas.js';
 import {
@@ -185,11 +186,21 @@ async function processAIMessage(
       console.log(`📚 Контекст: ${contextMessages.length} сообщений для чата ${chatId}`);
     }
 
+    let modelOverride: OpenRouterTier | undefined;
+    if (config.modelRouter.enabled && config.ai.openrouterKey) {
+      try {
+        modelOverride = await selectModelForTask(text, !!(images?.length));
+      } catch (err) {
+        console.warn('⚠️ Model router failed, using selected model:', err);
+      }
+    }
+
     const aiResponse = await processWithAI(
       text,
       contextMessages,
       images && images.length > 0 ? images : undefined,
       onStatus,
+      modelOverride,
     );
 
     if (!aiResponse) {

@@ -5,6 +5,7 @@
  * Никакого runtime-переключения, никаких HTTP-эндпоинтов.
  */
 
+import fs from 'fs';
 import path from 'path';
 import type { GatewayMode, BinaryDef, CliGatewayConfig } from './types.js';
 import { VALID_MODES } from './types.js';
@@ -136,3 +137,28 @@ function buildConfig(): CliGatewayConfig {
 
 /** Конфиг CLI Gateway — singleton, инициализируется при первом импорте. */
 export const cliGatewayConfig: CliGatewayConfig = buildConfig();
+
+/**
+ * Kill-switch проверяется на каждый вызов gateway (sync).
+ * Любое срабатывание мгновенно переводит gateway в OFF-поведение.
+ */
+export function isKillSwitchActive(): boolean {
+  const stopFlagPath = path.join(cliGatewayConfig.projectRoot, cliGatewayConfig.stopFlagFile);
+  const stopFlagExists = fs.existsSync(stopFlagPath);
+  const envKilled = process.env[cliGatewayConfig.killEnvVar] === '1';
+  return stopFlagExists || envKilled;
+}
+
+/**
+ * Минимальный env для дочернего процесса.
+ * Не передаем process.env целиком, чтобы не утекали секреты.
+ */
+export function getChildProcessEnv(): Record<string, string> {
+  const home = process.env.HOME ?? process.env.USERPROFILE ?? '';
+  return {
+    PATH: process.env.PATH ?? '',
+    HOME: home,
+    USERPROFILE: process.env.USERPROFILE ?? home,
+    LANG: process.env.LANG ?? 'en_US.UTF-8',
+  };
+}

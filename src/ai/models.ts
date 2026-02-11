@@ -1,4 +1,5 @@
-import { getModelConfig, getOpenRouterFallbackConfig, config, type ModelConfig } from '../config/config.js';
+import { getModelConfig, getModelConfigForTier, getOpenRouterFallbackConfig, config, type ModelConfig } from '../config/config.js';
+import type { OpenRouterTier } from '../config/config.js';
 import { getSystemPrompt } from '../config/personas.js';
 import type { ContextMessage } from '../db/context.js';
 import { skillRegistry } from '../skills/registry.js';
@@ -25,14 +26,18 @@ export interface ImageAttachment {
 /**
  * Обработать сообщение с AI.
  * При ошибке основного провайдера — автоматический failover на альтернативный.
+ * @param modelOverride — опциональный tier от model router (FREE, BUDGET, PRO_CODE, FRONTIER, FREE_TOP).
  */
 export async function processWithAI(
   message: string,
   contextMessages?: ContextMessage[],
   imageAttachments?: ImageAttachment[],
   onStatus?: (status: string) => Promise<void>,
+  modelOverride?: OpenRouterTier | 'none',
 ): Promise<AIResponse | null> {
-  const modelConfig = getModelConfig();
+  const modelConfig = modelOverride && modelOverride !== 'none'
+    ? getModelConfigForTier(modelOverride as OpenRouterTier)
+    : getModelConfig();
 
   if (modelConfig.provider === 'none') {
     return null;

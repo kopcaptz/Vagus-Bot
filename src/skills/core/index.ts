@@ -148,6 +148,20 @@ function listDirSafe(dirPath: string): string {
   return lines.join('\n');
 }
 
+function deleteFileSafe(filePath: string): string {
+  const resolved = resolvePath(filePath);
+  if (!resolved) return 'Ошибка: путь вне рабочей директории или WORKSPACE_ROOT не задан.';
+  if (!fs.existsSync(resolved)) return `Ошибка: файл не найден: ${filePath}`;
+  const stat = fs.statSync(resolved);
+  if (!stat.isFile()) return 'Ошибка: путь указывает на директорию. Удалять можно только файлы.';
+  try {
+    fs.unlinkSync(resolved);
+    return `Удалён: ${filePath}`;
+  } catch (err) {
+    return `Ошибка удаления: ${err instanceof Error ? err.message : String(err)}`;
+  }
+}
+
 function runCommandSafe(command: string): string {
   if (isCommandBlocked(command)) {
     return 'Ошибка: команда запрещена из соображений безопасности.';
@@ -225,6 +239,17 @@ export class CoreSkill implements Skill {
           },
         },
       },
+      {
+        name: 'delete_file',
+        description: 'Удалить файл в рабочей директории. Путь относительно WORKSPACE_ROOT. Удалять можно только файлы, не директории.',
+        parameters: {
+          type: 'object',
+          properties: {
+            path: { type: 'string', description: 'Относительный путь к файлу' },
+          },
+          required: ['path'],
+        },
+      },
       // run_command отключён: для работы с терминалом используйте только system_cli_gateway (безопасный шлюз).
       // {
       //   name: 'run_command',
@@ -252,6 +277,11 @@ export class CoreSkill implements Skill {
       case 'list_dir': {
         const p = typeof args.path === 'string' ? args.path : String(args.path ?? '.');
         return listDirSafe(p);
+      }
+
+      case 'delete_file': {
+        const p = typeof args.path === 'string' ? args.path : String(args.path ?? '');
+        return deleteFileSafe(p);
       }
 
       // case 'run_command': отключён — используйте system_cli_gateway

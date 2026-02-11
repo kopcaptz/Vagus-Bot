@@ -18,6 +18,7 @@ async function apiFetch(url, options = {}) {
     }
     const response = await fetch(url, options);
     if (response.status === 401) {
+<<<<<<< HEAD
         let body = {};
         try { body = await response.clone().json(); } catch (_) {}
         if (body.error && body.error.includes('not configured')) {
@@ -25,6 +26,9 @@ async function apiFetch(url, options = {}) {
             return response;
         }
         const newToken = prompt('🔒 Требуется авторизация.\n\nВведите ADMIN_TOKEN (из .env):');
+=======
+        const newToken = prompt('🔒 ' + t('msg.authRequired'));
+>>>>>>> 4487979 (feat: implement dashboard i18n, model router, and secure skill gateway)
         if (newToken) {
             setAdminToken(newToken);
             options.headers = options.headers || {};
@@ -42,6 +46,7 @@ async function apiFetchMultipart(url, formData) {
     if (token) headers['X-Admin-Token'] = token;
     const response = await fetch(url, { method: 'POST', headers, body: formData });
     if (response.status === 401) {
+<<<<<<< HEAD
         let body = {};
         try { body = await response.clone().json(); } catch (_) {}
         if (body.error && body.error.includes('not configured')) {
@@ -49,6 +54,9 @@ async function apiFetchMultipart(url, formData) {
             return response;
         }
         const newToken = prompt('🔒 Требуется авторизация.\n\nВведите ADMIN_TOKEN (из .env):');
+=======
+        const newToken = prompt('🔒 ' + t('msg.authRequired'));
+>>>>>>> 4487979 (feat: implement dashboard i18n, model router, and secure skill gateway)
         if (newToken) {
             setAdminToken(newToken);
             headers['X-Admin-Token'] = newToken;
@@ -59,6 +67,7 @@ async function apiFetchMultipart(url, formData) {
 }
 
 // ============================================
+<<<<<<< HEAD
 // ИСТОЧНИК СИЛЫ (Auth Providers)
 // ============================================
 
@@ -297,6 +306,53 @@ async function selectGoogleModel() {
         alert('Ошибка выбора Gemini модели');
     }
 }
+=======
+// VIEW & i18n
+// ============================================
+
+function showView(id) {
+    document.querySelectorAll('.view').forEach(v => {
+        v.classList.remove('view-active');
+    });
+    document.querySelectorAll('.nav-link').forEach(a => {
+        a.classList.toggle('active', a.dataset.view === id);
+    });
+    const view = document.getElementById('view-' + id);
+    if (view) view.classList.add('view-active');
+}
+
+function applyTranslations() {
+    document.documentElement.lang = currentLang;
+    document.querySelectorAll('[data-i18n]').forEach(el => {
+        const key = el.getAttribute('data-i18n');
+        if (key) el.textContent = t(key);
+    });
+    document.querySelectorAll('[data-i18n-placeholder]').forEach(el => {
+        const key = el.getAttribute('data-i18n-placeholder');
+        if (key) el.placeholder = t(key);
+    });
+    document.querySelectorAll('.lang-btn').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.lang === currentLang);
+    });
+    document.title = t('pageTitle');
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    applyTranslations();
+    document.querySelectorAll('.nav-link').forEach(a => {
+        a.addEventListener('click', (e) => {
+            e.preventDefault();
+            const id = a.dataset.view;
+            if (id) showView(id);
+        });
+    });
+    document.querySelectorAll('.lang-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            setLang(btn.dataset.lang);
+        });
+    });
+});
+>>>>>>> 4487979 (feat: implement dashboard i18n, model router, and secure skill gateway)
 
 // ============================================
 
@@ -305,21 +361,27 @@ async function loadStats() {
     try {
         const response = await apiFetch('/api/stats');
         const data = await response.json();
+        if (data.error || !response.ok) {
+            document.getElementById('stats').innerHTML =
+                `<p class="error">${data.error || t('msg.errorStats')}</p>`;
+            const hintEl = document.getElementById('telegramSendHint');
+            if (hintEl) hintEl.textContent = '⚠️ ' + t('stats.telegramRequired');
+            return;
+        }
         
-        let statsHtml = `<p><strong>Статус:</strong> ${data.status}</p>`;
+        let statsHtml = `<p><strong>${t('stats.status')}:</strong> ${data.status || t('msg.running')}</p>`;
         
         // Telegram статус
         if (data.telegram && data.telegram.enabled) {
+            const bot = data.telegram?.bot;
             statsHtml += `
-                <p><strong>Telegram:</strong> ✅ Подключен</p>
-                <p><strong>Бот ID:</strong> ${data.telegram.bot.id}</p>
-                <p><strong>Username:</strong> @${data.telegram.bot.username}</p>
-                <p><strong>Имя:</strong> ${data.telegram.bot.firstName}</p>
+                <p><strong>${t('stats.telegram')}:</strong> ✅ ${t('stats.telegramConnected')}</p>
+                ${bot ? `<p><strong>${t('stats.botId')}:</strong> ${bot.id || '-'}</p><p><strong>${t('stats.username')}:</strong> @${bot.username || '-'}</p><p><strong>${t('stats.botName')}:</strong> ${bot.firstName || '-'}</p>` : ''}
             `;
         } else {
             statsHtml += `
-                <p><strong>Telegram:</strong> ❌ Не подключен</p>
-                <p><em>${data.telegram?.message || 'Telegram бот не настроен'}</em></p>
+                <p><strong>${t('stats.telegram')}:</strong> ❌ ${t('stats.telegramNotConnected')}</p>
+                <p><em>${data.telegram?.message || t('stats.telegramNotConfigured')}</em></p>
             `;
         }
         
@@ -331,43 +393,79 @@ async function loadStats() {
             if (data.ai.config) {
                 if (data.ai.config.hasApiKey) {
                     statsHtml += `
+<<<<<<< HEAD
                         <p><strong>Провайдер:</strong> ${data.ai.config.provider}</p>
                         <p><strong>Модель:</strong> ${data.ai.config.model}</p>
                     `;
                 } else {
                     statsHtml += `
                         <p style="color: orange;">⚠️ API ключ / OAuth не настроен</p>
+=======
+                        <p style="margin-top: 15px;"><strong>${t('stats.aiModel')}:</strong> ✅ ${data.ai.selectedModel}</p>
+                        <p><strong>${t('stats.provider')}:</strong> ${data.ai.config.provider}</p>
+                        <p><strong>${t('stats.model')}:</strong> ${data.ai.config.model}</p>
+                    `;
+                } else {
+                    statsHtml += `
+                        <p style="margin-top: 15px;"><strong>${t('stats.aiModel')}:</strong> ⚠️ ${data.ai.selectedModel}</p>
+                        <p style="color: orange;">${t('stats.apiKeyNotConfigured')}</p>
+>>>>>>> 4487979 (feat: implement dashboard i18n, model router, and secure skill gateway)
                     `;
                 }
             } else {
                 statsHtml += `
+<<<<<<< HEAD
                     <p><strong>AI модель:</strong> ❌ Не выбрана</p>
+=======
+                    <p style="margin-top: 15px;"><strong>${t('stats.aiModel')}:</strong> ❌ ${t('stats.aiNotSelected')}</p>
+>>>>>>> 4487979 (feat: implement dashboard i18n, model router, and secure skill gateway)
                 `;
             }
         }
 
         if (data.persona && data.persona.selected) {
             statsHtml += `
-                <p style="margin-top: 15px;"><strong>🎭 Личность:</strong> ${data.persona.selected}</p>
+                <p style="margin-top: 15px;"><strong>🎭 ${t('stats.persona')}:</strong> ${data.persona.selected}</p>
             `;
+        }
+        
+        // Google Drive статус
+        if (data.drive) {
+            if (data.drive.enabled) {
+                statsHtml += `
+                    <p style="margin-top: 15px;"><strong>Google Drive:</strong> ${t('stats.driveConnected')}</p>
+                    <p><em>${t('stats.driveFolder')}: ${data.drive.root || t('stats.driveRoot')}</em></p>
+                `;
+            } else {
+                statsHtml += `
+                    <p style="margin-top: 15px;"><strong>Google Drive:</strong> ${t('stats.driveNotConfigured')}</p>
+                    <p><em>${t('stats.driveEnvHint')}</em></p>
+                `;
+            }
         }
         
         // База данных статус
         if (data.database) {
             statsHtml += `
-                <p style="margin-top: 15px;"><strong>📊 База данных:</strong></p>
-                <p>💬 Сообщений: ${data.database.totalMessages}</p>
-                <p>👤 Пользователей: ${data.database.totalUsers}</p>
-                <p>📝 Сессий: ${data.database.totalSessions} (активных: ${data.database.activeSessions})</p>
+                <p style="margin-top: 15px;"><strong>📊 ${t('stats.database')}:</strong></p>
+                <p>💬 ${t('stats.messages')}: ${data.database.totalMessages}</p>
+                <p>👤 ${t('stats.users')}: ${data.database.totalUsers}</p>
+                <p>📝 ${t('stats.sessions')}: ${data.database.totalSessions} (${t('stats.activeSessions')}: ${data.database.activeSessions})</p>
             `;
         }
         
-        statsHtml += `<p style="margin-top: 15px;"><strong>Время:</strong> ${new Date(data.timestamp).toLocaleString('ru-RU')}</p>`;
+        statsHtml += `<p style="margin-top: 15px;"><strong>${t('stats.time')}:</strong> ${new Date(data.timestamp).toLocaleString(currentLang === 'ru' ? 'ru-RU' : 'en-US')}</p>`;
         
         document.getElementById('stats').innerHTML = statsHtml;
+        const hintEl = document.getElementById('telegramSendHint');
+        if (hintEl) {
+            hintEl.textContent = data.telegram?.enabled ? '✅ ' + t('stats.telegramConnectedHint') : '⚠️ ' + t('stats.telegramRequired');
+        }
     } catch (error) {
         document.getElementById('stats').innerHTML = 
-            '<p class="error">Ошибка загрузки статистики</p>';
+            '<p class="error">' + t('msg.errorStats') + '</p>';
+        const hintEl = document.getElementById('telegramSendHint');
+        if (hintEl) hintEl.textContent = '⚠️ ' + t('stats.telegramRequired');
     }
 }
 
@@ -379,7 +477,7 @@ document.getElementById('sendForm').addEventListener('submit', async (e) => {
     const message = document.getElementById('message').value;
     const resultDiv = document.getElementById('result');
     
-    resultDiv.innerHTML = '<p>Отправка...</p>';
+    resultDiv.innerHTML = '<p>' + t('msg.sending') + '</p>';
     
     try {
         const response = await apiFetch('/api/send', {
@@ -393,13 +491,13 @@ document.getElementById('sendForm').addEventListener('submit', async (e) => {
         const data = await response.json();
         
         if (data.success) {
-            resultDiv.innerHTML = '<p class="success">✅ Сообщение отправлено!</p>';
+            resultDiv.innerHTML = '<p class="success">✅ ' + t('msg.sent') + '</p>';
             document.getElementById('sendForm').reset();
         } else {
-            resultDiv.innerHTML = `<p class="error">❌ ${data.error || 'Ошибка отправки сообщения'}</p>`;
+            resultDiv.innerHTML = `<p class="error">❌ ${data.error || t('msg.errorSend')}</p>`;
         }
     } catch (error) {
-        resultDiv.innerHTML = '<p class="error">❌ Ошибка отправки сообщения</p>';
+        resultDiv.innerHTML = '<p class="error">❌ ' + t('msg.errorSend') + '</p>';
     }
 });
 
@@ -409,31 +507,40 @@ async function loadModels() {
         const response = await apiFetch('/api/models');
         const data = await response.json();
         
-        // Установить выбранную модель в селекторе
-        document.getElementById('modelSelect').value = data.selected || 'none';
+        const select = document.getElementById('modelSelect');
+        if (select && data.available && Array.isArray(data.available)) {
+            select.innerHTML = '';
+            data.available.forEach((m) => {
+                const opt = document.createElement('option');
+                opt.value = m.id;
+                opt.textContent = m.name;
+                select.appendChild(opt);
+            });
+        }
+        if (select) select.value = data.selected || 'none';
         
         // Показать информацию о модели
         if (data.config && data.config.hasApiKey) {
             document.getElementById('modelInfo').innerHTML = `
-                <p><strong>Текущая модель:</strong> ${data.selected}</p>
-                <p><strong>Провайдер:</strong> ${data.config.provider}</p>
-                <p><strong>Модель:</strong> ${data.config.model}</p>
-                <p style="color: green;">✅ API ключ настроен</p>
+                <p><strong>${t('models.currentModel')}:</strong> ${data.selected}</p>
+                <p><strong>${t('stats.provider')}:</strong> ${data.config.provider}</p>
+                <p><strong>${t('stats.model')}:</strong> ${data.config.model}</p>
+                <p style="color: green;">✅ ${t('models.apiKeyOk')}</p>
             `;
         } else if (data.selected !== 'none') {
             document.getElementById('modelInfo').innerHTML = `
-                <p><strong>Текущая модель:</strong> ${data.selected}</p>
-                <p style="color: orange;">⚠️ API ключ не настроен. Добавьте ключ в .env файл.</p>
+                <p><strong>${t('models.currentModel')}:</strong> ${data.selected}</p>
+                <p style="color: orange;">⚠️ ${t('models.apiKeyMissing')}</p>
             `;
         } else {
             document.getElementById('modelInfo').innerHTML = `
-                <p><strong>Текущая модель:</strong> Без AI</p>
-                <p style="color: #666;">AI обработка отключена</p>
+                <p><strong>${t('models.currentModel')}:</strong> ${t('models.noAi')}</p>
+                <p style="color: #666;">${t('models.aiDisabled')}</p>
             `;
         }
     } catch (error) {
         document.getElementById('modelInfo').innerHTML = 
-            '<p class="error">Ошибка загрузки информации о моделях</p>';
+            '<p class="error">' + t('msg.errorModels') + '</p>';
     }
 }
 
@@ -503,11 +610,11 @@ async function savePersona(saveAsNew) {
     const prompt = promptInput.value.trim();
 
     if (!name || !prompt) {
-        status.innerHTML = '<p class="error">❌ Заполните имя и prompt</p>';
+        status.innerHTML = '<p class="error">❌ ' + t('msg.fillNameAndPrompt') + '</p>';
         return;
     }
 
-    status.innerHTML = '<p>Сохраняю...</p>';
+    status.innerHTML = '<p>' + t('msg.saving') + '</p>';
 
     try {
         const response = await apiFetch('/api/personas/save', {
@@ -517,17 +624,17 @@ async function savePersona(saveAsNew) {
         });
         const data = await response.json();
         if (data.success) {
-            status.innerHTML = '<p class="success">✅ Сохранено</p>';
+            status.innerHTML = '<p class="success">✅ ' + t('msg.saved') + '</p>';
             await loadPersonas();
             if (data.persona?.id) {
                 select.value = data.persona.id;
             }
             updatePersonaEditorFields();
         } else {
-            status.innerHTML = `<p class="error">❌ ${data.error || 'Ошибка сохранения'}</p>`;
+            status.innerHTML = `<p class="error">❌ ${data.error || t('msg.errorSave')}</p>`;
         }
     } catch (error) {
-        status.innerHTML = '<p class="error">❌ Ошибка сохранения</p>';
+        status.innerHTML = '<p class="error">❌ ' + t('msg.errorSave') + '</p>';
     }
 }
 
@@ -537,21 +644,21 @@ async function deletePersona() {
     if (!select || !status) return;
 
     const id = select.value;
-    if (!confirm(`Удалить личность "${id}"?`)) return;
+    if (!confirm(t('msg.deletePersonaConfirm', id))) return;
 
-    status.innerHTML = '<p>Удаляю...</p>';
+    status.innerHTML = '<p>' + t('msg.deleting') + '</p>';
 
     try {
         const response = await apiFetch(`/api/personas/${encodeURIComponent(id)}`, { method: 'DELETE' });
         const data = await response.json();
         if (data.success) {
-            status.innerHTML = '<p class="success">✅ Удалено</p>';
+            status.innerHTML = '<p class="success">✅ ' + t('msg.deleted') + '</p>';
             await loadPersonas();
         } else {
-            status.innerHTML = `<p class="error">❌ ${data.error || 'Ошибка удаления'}</p>`;
+            status.innerHTML = `<p class="error">❌ ${data.error || t('msg.errorDelete')}</p>`;
         }
     } catch (error) {
-        status.innerHTML = '<p class="error">❌ Ошибка удаления</p>';
+        status.innerHTML = '<p class="error">❌ ' + t('msg.errorDelete') + '</p>';
     }
 }
 
@@ -571,14 +678,14 @@ async function selectPersona() {
         
         const data = await response.json();
         if (data.success) {
-            alert(`✅ Личность "${persona}" применена!`);
+            alert('✅ ' + t('msg.personaApplied', persona));
             loadPersonas();
             loadStats();
         } else {
-            alert(`❌ Ошибка: ${data.error}`);
+            alert('❌ ' + t('msg.errorWithDetail', data.error));
         }
     } catch (error) {
-        alert('❌ Ошибка выбора личности');
+        alert('❌ ' + t('msg.errorSelectPersona'));
     }
 }
 
@@ -599,14 +706,14 @@ async function selectModel() {
         const data = await response.json();
         
         if (data.success) {
-            alert(`✅ Модель "${model}" выбрана!`);
+            alert('✅ ' + t('msg.modelSelected', model));
             loadModels();
             loadStats(); // Обновить статистику
         } else {
-            alert(`❌ Ошибка: ${data.error}`);
+            alert('❌ ' + t('msg.errorWithDetail', data.error));
         }
     } catch (error) {
-        alert('❌ Ошибка выбора модели');
+        alert('❌ ' + t('msg.errorSelectModel'));
     }
 }
 
@@ -616,11 +723,11 @@ async function testAI() {
     const resultDiv = document.getElementById('testResult');
     
     if (!message) {
-        resultDiv.innerHTML = '<p class="error">Введите сообщение для теста</p>';
+        resultDiv.innerHTML = '<p class="error">' + t('msg.enterMessageForTest') + '</p>';
         return;
     }
     
-    resultDiv.innerHTML = '<p>Обработка...</p>';
+    resultDiv.innerHTML = '<p>' + t('msg.processing') + '</p>';
     
     try {
         const response = await apiFetch('/api/ai/test', {
@@ -636,15 +743,15 @@ async function testAI() {
         if (data.success) {
             resultDiv.innerHTML = `
                 <div class="success">
-                    <p><strong>Ответ:</strong> ${data.response}</p>
-                    <p style="font-size: 0.9em; color: #666;">Модель: ${data.model} (${data.provider})</p>
+                    <p><strong>${t('msg.response')}</strong> ${data.response}</p>
+                    <p style="font-size: 0.9em; color: #666;">${t('msg.modelLabel')}: ${data.model} (${data.provider})</p>
                 </div>
             `;
         } else {
             resultDiv.innerHTML = `<p class="error">❌ ${data.error}</p>`;
         }
     } catch (error) {
-        resultDiv.innerHTML = '<p class="error">❌ Ошибка тестирования AI</p>';
+        resultDiv.innerHTML = '<p class="error">❌ ' + t('msg.errorTest') + '</p>';
     }
 }
 
@@ -658,7 +765,7 @@ async function loadHistory(offset = 0) {
     const pagination = document.getElementById('history-pagination');
     
     if (!chatId) {
-        list.innerHTML = '<div class="history-empty">Введите Chat ID для просмотра</div>';
+        list.innerHTML = '<div class="history-empty">' + t('msg.enterChatId') + '</div>';
         pagination.innerHTML = '';
         return;
     }
@@ -675,7 +782,7 @@ async function loadHistory(offset = 0) {
     if (search) params.set('q', search);
     if (role) params.set('role', role);
     
-    list.innerHTML = '<div class="history-empty">Загрузка...</div>';
+    list.innerHTML = '<div class="history-empty">' + t('msg.loading') + '</div>';
     pagination.innerHTML = '';
     
     try {
@@ -686,10 +793,10 @@ async function loadHistory(offset = 0) {
             renderHistory(data.messages);
             renderPagination(data.total, data.offset, data.limit);
         } else {
-            list.innerHTML = `<div class="history-empty error">❌ ${data.error || 'Ошибка загрузки'}</div>`;
+            list.innerHTML = `<div class="history-empty error">❌ ${data.error || t('msg.errorLoad')}</div>`;
         }
     } catch (error) {
-        list.innerHTML = '<div class="history-empty error">❌ Ошибка загрузки истории</div>';
+        list.innerHTML = '<div class="history-empty error">❌ ' + t('msg.errorHistory') + '</div>';
     }
 }
 
@@ -698,15 +805,15 @@ function renderHistory(messages) {
     container.innerHTML = '';
     
     if (!messages || messages.length === 0) {
-        container.innerHTML = '<div class="history-empty">Сообщений не найдено</div>';
+        container.innerHTML = '<div class="history-empty">' + t('msg.noMessages') + '</div>';
         return;
     }
     
     messages.forEach((msg) => {
         const isBot = Boolean(msg.is_bot);
-        const sender = isBot ? '🤖 Бот' : `👤 ${msg.username || 'Пользователь'}`;
-        const time = new Date(msg.created_at).toLocaleString('ru-RU');
-        const modelInfo = msg.ai_model ? `<div class="history-meta">Модель: ${msg.ai_model}</div>` : '';
+        const sender = isBot ? '🤖 ' + t('msg.bot') : `👤 ${msg.username || t('msg.user')}`;
+        const time = new Date(msg.created_at).toLocaleString(currentLang === 'ru' ? 'ru-RU' : 'en-US');
+        const modelInfo = msg.ai_model ? `<div class="history-meta">${t('history.model')} ${msg.ai_model}</div>` : '';
         
         const item = document.createElement('div');
         item.className = `history-item ${isBot ? 'bot' : 'user'}`;
@@ -728,15 +835,15 @@ function renderPagination(total, offset, limit) {
     const currentPage = Math.floor(offset / limit) + 1;
     
     const prevBtn = document.createElement('button');
-    prevBtn.textContent = '← Назад';
+    prevBtn.textContent = '← ' + t('history.prev');
     prevBtn.disabled = offset === 0;
     prevBtn.onclick = () => loadHistory(offset - limit);
     
     const info = document.createElement('span');
-    info.textContent = `Стр. ${currentPage} из ${totalPages}`;
+    info.textContent = `${t('history.page')} ${currentPage} ${t('history.of')} ${totalPages}`;
     
     const nextBtn = document.createElement('button');
-    nextBtn.textContent = 'Вперед →';
+    nextBtn.textContent = t('history.next') + ' →';
     nextBtn.disabled = offset + limit >= total;
     nextBtn.onclick = () => loadHistory(offset + limit);
     
@@ -748,10 +855,10 @@ function renderPagination(total, offset, limit) {
 async function clearCurrentChat() {
     const chatId = document.getElementById('historychatId').value.trim();
     if (!chatId) {
-        alert('Введите Chat ID!');
+        alert(t('msg.enterChatIdForClear'));
         return;
     }
-    if (!confirm('Вы уверены? Это удалит ВСЮ историю этого чата.')) return;
+    if (!confirm(t('msg.confirmClear'))) return;
     
     try {
         const response = await apiFetch(`/api/history/${encodeURIComponent(chatId)}`, { method: 'DELETE' });
@@ -759,17 +866,17 @@ async function clearCurrentChat() {
         if (data.success) {
             loadHistory(0);
         } else {
-            alert(data.error || 'Ошибка очистки');
+            alert(data.error || t('msg.errorClear'));
         }
     } catch (error) {
-        alert('Ошибка очистки');
+        alert(t('msg.errorClear'));
     }
 }
 
 function exportHistory() {
     const chatId = document.getElementById('historychatId').value.trim();
     if (!chatId) {
-        alert('Введите Chat ID!');
+        alert(t('msg.enterChatIdForClear'));
         return;
     }
     window.open(`/api/history/${encodeURIComponent(chatId)}?limit=1000`, '_blank');
@@ -796,15 +903,15 @@ async function loadContextConfig() {
             
             // Показываем статус
             const statusHtml = `
-                <p><strong>Статус:</strong> ${config.enabled ? '✅ Включена' : '❌ Отключена'}</p>
-                <p><strong>Максимум сообщений:</strong> ${config.maxMessages}</p>
-                <p><strong>Максимум токенов:</strong> ${config.maxTokens}</p>
-                <p><strong>Системный промпт:</strong> ${config.includeSystemPrompt ? '✅ Включен' : '❌ Отключен'}</p>
+                <p><strong>${t('stats.status')}:</strong> ${config.enabled ? '✅ ' + t('context.statusEnabled') : '❌ ' + t('context.statusDisabled')}</p>
+                <p><strong>${t('context.maxMessagesLabel')}</strong> ${config.maxMessages}</p>
+                <p><strong>${t('context.maxTokensLabel')}</strong> ${config.maxTokens}</p>
+                <p><strong>${t('context.systemPromptLabel')}</strong> ${config.includeSystemPrompt ? '✅ ' + t('context.statusEnabled') : '❌ ' + t('context.statusDisabled')}</p>
             `;
             document.getElementById('contextConfig').innerHTML = statusHtml;
         }
     } catch (error) {
-        document.getElementById('contextConfig').innerHTML = '<p class="error">Ошибка загрузки настроек контекста</p>';
+        document.getElementById('contextConfig').innerHTML = '<p class="error">' + t('msg.errorContextConfig') + '</p>';
     }
 }
 
@@ -832,13 +939,13 @@ async function saveContextConfig() {
         const data = await response.json();
         
         if (data.success) {
-            alert('✅ Настройки контекста сохранены!');
+            alert('✅ ' + t('msg.contextSaved'));
             loadContextConfig();
         } else {
-            alert(`❌ Ошибка: ${data.error}`);
+            alert('❌ ' + t('msg.errorWithDetail', data.error));
         }
     } catch (error) {
-        alert('❌ Ошибка сохранения настроек контекста');
+        alert('❌ ' + t('msg.errorContextSave'));
     }
 }
 
@@ -848,27 +955,27 @@ async function previewContext() {
     const previewDiv = document.getElementById('contextPreviewContent');
     
     if (!chatId) {
-        previewDiv.innerHTML = '<p class="error">Введите Chat ID</p>';
+        previewDiv.innerHTML = '<p class="error">' + t('msg.enterChatIdForPreview') + '</p>';
         return;
     }
     
-    previewDiv.innerHTML = '<p>Загрузка...</p>';
+    previewDiv.innerHTML = '<p>' + t('msg.loading') + '</p>';
     
     try {
         const response = await apiFetch(`/api/context/${chatId}`);
         const data = await response.json();
         
         if (data.success) {
-            let previewHtml = `<p><strong>Статистика контекста:</strong></p>`;
-            previewHtml += `<p>📊 Сообщений в контексте: ${data.stats.contextMessages}</p>`;
-            previewHtml += `<p>💡 Примерное количество токенов: ${data.stats.estimatedTokens}</p>`;
+            let previewHtml = `<p><strong>${t('context.stats')}</strong></p>`;
+            previewHtml += `<p>📊 ${t('context.messagesInContext')} ${data.stats.contextMessages}</p>`;
+            previewHtml += `<p>💡 ${t('context.estimatedTokens')} ${data.stats.estimatedTokens}</p>`;
             previewHtml += `<hr style="margin: 15px 0;">`;
-            previewHtml += `<p><strong>Сообщения в контексте:</strong></p>`;
+            previewHtml += `<p><strong>${t('context.messagesInContextLabel')}</strong></p>`;
             previewHtml += '<div style="max-height: 300px; overflow-y: auto; margin-top: 10px;">';
             
             data.messages.forEach((msg, idx) => {
                 const roleEmoji = msg.role === 'system' ? '⚙️' : msg.role === 'assistant' ? '🤖' : '👤';
-                const roleName = msg.role === 'system' ? 'Система' : msg.role === 'assistant' ? 'Ассистент' : 'Пользователь';
+                const roleName = msg.role === 'system' ? t('context.roleSystem') : msg.role === 'assistant' ? t('context.roleAssistant') : t('context.roleUser');
                 
                 previewHtml += `
                     <div style="background: ${msg.role === 'system' ? '#fff3cd' : msg.role === 'assistant' ? '#e3f2fd' : '#f5f5f5'}; padding: 10px; margin-bottom: 8px; border-radius: 6px; border-left: 3px solid ${msg.role === 'system' ? '#ffc107' : msg.role === 'assistant' ? '#2196F3' : '#757575'};">
@@ -881,10 +988,10 @@ async function previewContext() {
             previewHtml += '</div>';
             previewDiv.innerHTML = previewHtml;
         } else {
-            previewDiv.innerHTML = `<p class="error">❌ ${data.error || 'Ошибка загрузки контекста'}</p>`;
+            previewDiv.innerHTML = `<p class="error">❌ ${data.error || t('msg.errorContextLoad')}</p>`;
         }
     } catch (error) {
-        previewDiv.innerHTML = '<p class="error">❌ Ошибка загрузки контекста</p>';
+        previewDiv.innerHTML = '<p class="error">❌ ' + t('msg.errorContextLoad') + '</p>';
     }
 }
 
@@ -896,16 +1003,16 @@ async function addToHistory() {
     const resultDiv = document.getElementById('testResult');
     
     if (!chatId) {
-        resultDiv.innerHTML = '<p class="error">❌ Укажите Chat ID, чтобы сохранить сообщение в историю</p>';
+        resultDiv.innerHTML = '<p class="error">❌ ' + t('msg.specifyChatId') + '</p>';
         return;
     }
     
     if (!message) {
-        resultDiv.innerHTML = '<p class="error">❌ Введите сообщение для сохранения</p>';
+        resultDiv.innerHTML = '<p class="error">❌ ' + t('msg.enterMessageToSave') + '</p>';
         return;
     }
     
-    resultDiv.innerHTML = '<p>Сохраняю сообщение в историю...</p>';
+    resultDiv.innerHTML = '<p>' + t('msg.savingToHistory') + '</p>';
     
     try {
         const response = await apiFetch('/api/history/add', {
@@ -923,7 +1030,7 @@ async function addToHistory() {
         const data = await response.json();
         
         if (data.success) {
-            resultDiv.innerHTML = `<p class="success">✅ Сообщение добавлено в историю (Chat ID: ${chatId})</p>`;
+            resultDiv.innerHTML = `<p class="success">✅ ${t('msg.addedToHistory')} (Chat ID: ${chatId})</p>`;
             
             // Если открыт блок истории или контекста - обновим
             const historyChatId = document.getElementById('historychatId')?.value?.trim();
@@ -931,10 +1038,10 @@ async function addToHistory() {
                 loadHistory();
             }
         } else {
-            resultDiv.innerHTML = `<p class="error">❌ ${data.error || 'Ошибка сохранения сообщения'}</p>`;
+            resultDiv.innerHTML = `<p class="error">❌ ${data.error || t('msg.errorSaveMessage')}</p>`;
         }
     } catch (error) {
-        resultDiv.innerHTML = '<p class="error">❌ Ошибка сохранения сообщения</p>';
+        resultDiv.innerHTML = '<p class="error">❌ ' + t('msg.errorSaveMessage') + '</p>';
     }
 }
 
@@ -947,20 +1054,20 @@ async function testAI() {
     const resultDiv = document.getElementById('testResult');
     
     if (!message && imageFiles.length === 0) {
-        resultDiv.innerHTML = '<p class="error">❌ Введите сообщение или выберите изображения</p>';
+        resultDiv.innerHTML = '<p class="error">❌ ' + t('msg.enterMessageOrImages') + '</p>';
         return;
     }
     
     // Предупреждение, если Chat ID не указан
     if (!chatId) {
-        const confirmUse = confirm('⚠️ Chat ID не указан!\n\nБез Chat ID контекстная память НЕ будет работать.\n\nХотите продолжить без контекста?');
+        const confirmUse = confirm('⚠️ ' + t('msg.chatIdNotSpecified') + '\n\n' + t('msg.chatIdWarning'));
         if (!confirmUse) {
-            resultDiv.innerHTML = '<p class="error">❌ Укажите Chat ID для использования контекста</p>';
+            resultDiv.innerHTML = '<p class="error">❌ ' + t('msg.specifyChatIdForContext') + '</p>';
             return;
         }
     }
     
-    resultDiv.innerHTML = '<p>Обработка...</p>';
+    resultDiv.innerHTML = '<p>' + t('msg.processing') + '</p>';
     
     try {
         let response;
@@ -988,31 +1095,31 @@ async function testAI() {
         if (data.success) {
             let resultHtml = `
                 <div class="success">
-                    <p><strong>Ответ:</strong> ${data.response}</p>
-                    <p style="font-size: 0.9em; color: #666;">Модель: ${data.model} (${data.provider})</p>
+                    <p><strong>${t('msg.response')}</strong> ${data.response}</p>
+                    <p style="font-size: 0.9em; color: #666;">${t('msg.modelLabel')}: ${data.model} (${data.provider})</p>
             `;
             
             if (data.tokensUsed) {
-                resultHtml += `<p style="font-size: 0.9em; color: #666;">💡 Токенов использовано: ${data.tokensUsed}</p>`;
+                resultHtml += `<p style="font-size: 0.9em; color: #666;">💡 ${t('msg.tokensUsed')} ${data.tokensUsed}</p>`;
             }
             
             if (chatId) {
                 if (data.contextEnabled) {
                     if (data.contextUsed > 0) {
-                        resultHtml += `<p style="font-size: 0.9em; color: #28a745;">📚 ✅ Использован контекст из ${data.contextUsed} сообщений (Chat ID: ${chatId})</p>`;
+                        resultHtml += `<p style="font-size: 0.9em; color: #28a745;">📚 ✅ ${t('msg.contextUsed', data.contextUsed)} (Chat ID: ${chatId})</p>`;
                         if (data.contextTotal > data.contextUsed) {
-                            resultHtml += `<p style="font-size: 0.85em; color: #666;">   Всего в контексте: ${data.contextTotal} (включая системный промпт)</p>`;
+                            resultHtml += `<p style="font-size: 0.85em; color: #666;">   ${t('msg.contextTotal')} ${data.contextTotal}</p>`;
                         }
                     } else {
-                        resultHtml += `<p style="font-size: 0.9em; color: #ffc107;">⚠️ Контекст включен, но история пуста для Chat ID: ${chatId}</p>`;
-                        resultHtml += `<p style="font-size: 0.85em; color: #666;">   Сначала создайте историю сообщений (используйте тестовый скрипт или Telegram бота)</p>`;
+                        resultHtml += `<p style="font-size: 0.9em; color: #ffc107;">⚠️ ${t('msg.contextEmpty')} (Chat ID: ${chatId})</p>`;
+                        resultHtml += `<p style="font-size: 0.85em; color: #666;">   ${t('msg.contextEmptyHint')}</p>`;
                     }
                 } else {
-                    resultHtml += `<p style="font-size: 0.9em; color: #ffc107;">⚠️ Контекстная память отключена в настройках</p>`;
+                    resultHtml += `<p style="font-size: 0.9em; color: #ffc107;">⚠️ ${t('msg.contextDisabled')}</p>`;
                 }
             } else {
-                resultHtml += `<p style="font-size: 0.9em; color: #666;">ℹ️ Контекст не использован (Chat ID не указан)</p>`;
-                resultHtml += `<p style="font-size: 0.85em; color: #666;">   Укажите Chat ID для использования контекстной памяти</p>`;
+                resultHtml += `<p style="font-size: 0.9em; color: #666;">ℹ️ ${t('msg.contextNotUsed')}</p>`;
+                resultHtml += `<p style="font-size: 0.85em; color: #666;">   ${t('msg.contextNotUsedHint')}</p>`;
             }
             
             resultHtml += '</div>';
@@ -1021,7 +1128,7 @@ async function testAI() {
             resultDiv.innerHTML = `<p class="error">❌ ${data.error}</p>`;
         }
     } catch (error) {
-        resultDiv.innerHTML = '<p class="error">❌ Ошибка тестирования AI</p>';
+        resultDiv.innerHTML = '<p class="error">❌ ' + t('msg.errorTest') + '</p>';
     }
 }
 

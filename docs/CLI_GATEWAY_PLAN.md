@@ -5,6 +5,20 @@
 Оркестратор Vagus должен иметь возможность взаимодействовать с ОС, но мы не доверяем ему прямой доступ к shell.
 Строим "шлюз безопасности" — инструмент `system.cli_gateway` для Windows-среды.
 
+## Scope: MVP-1 и MVP-2
+
+**MVP-1 (в этом документе):**
+- режимы безопасности читаются из ENV только при старте;
+- kill-switch через `STOP.flag` и `CLI_GATEWAY_KILL=1`;
+- confirm token хранится в памяти процесса (TTL 2-5 минут);
+- управление только через файл/ENV, без HTTP-управления.
+
+**MVP-2 (отложено):**
+- Admin API для runtime-переключения режимов и внешнего подтверждения операций;
+- расширенные policy-правила и внешнее хранилище подтверждений.
+
+Важно: Admin API не входит в MVP-1.
+
 ---
 
 ## Этап 0: Конфигурация (`src/config/cli-gateway.config.ts`)
@@ -138,7 +152,8 @@ OFF ◄── SAFE ◄── LIMITED ◄── CONFIRM                          
 4. **Режим CONFIRM** — при попытке опасной операции:
    - Gateway генерирует одноразовый UUID-токен.
    - Токен выводится в **stdout** (для человека-оператора, видящего логи).
-   - Человек передаёт токен обратно через повторный вызов `system.cli_gateway_confirm`.
+   - Человек передаёт токен обратно в повторный вызов `system_cli_gateway` через поле `confirm_token`.
+   - `system_cli_gateway_confirm` (если оставляем) используется только как вспомогательная проверка токена, но не как обязательный путь выполнения.
    - Токен хранится в **in-memory Map** с TTL (2–5 минут, настраивается). Никакой базы данных.
    - После использования или истечения TTL — токен удаляется.
 
@@ -163,7 +178,8 @@ const TRUSTED_DIRS = process.platform === 'win32'
   : ['/usr/bin', '/usr/local/bin', '/opt/homebrew/bin'];
 
 /**
- * Ищет бинарник по имени через системный where (Windows) / which (Unix).
+ * Ищет бинарник по имени через системный where/which без shell.
+ * На Windows — where.exe напрямую (не через cmd /c).
  * Затем проверяет, что найденный путь лежит в доверенной директории.
  * 
  * @returns Абсолютный путь к доверенному бинарнику
@@ -180,8 +196,10 @@ function resolveTrustedBinary(name: string, binaryDef: BinaryDef): string {
   const realPath = fs.realpathSync(path.resolve(foundPath));
 
   // 4. Security check: путь должен начинаться с одной из TRUSTED_DIRS
-  //    или быть явно разрешён через CLI_GATEWAY_TRUSTED_DIRS env
-  const allTrusted = [...TRUSTED_DIRS, ...getExtraTrustedDirs()];
+  //    или быть явно разрешён через CLI_GATEWAY_TRUSTED_DIRS env,
+  //    или лежать в projectRoot/tools (локальные инструменты проекта)
+  const projectTools = path.join(projectRoot, 'tools');
+  const allTrusted = [...TRUSTED_DIRS, ...getExtraTrustedDirs(), projectTools];
   const isTrusted = allTrusted.some(dir =>
     realPath.toLowerCase().startsWith(dir.toLowerCase())
   );
@@ -288,6 +306,7 @@ const sanitizedEnv: Record<string, string> = {
 1. `stdout`/`stderr` процесса собираются в буфер **в памяти**. До санитизации — **никакого** логирования, записи в файл или отправки.
 2. Только **после** прохождения `sanitize()` данные могут быть залогированы и/или возвращены Vagus'у.
 3. **Строгий запрет:** содержимое `env` дочернего процесса ЗАПРЕЩЕНО логировать, даже в режиме `DEBUG`. Это предотвращает утечку секретов через логи.
+4. Любые секреты, попавшие в stdout/stderr через `echo` или вывод утилит, редактируются sanitizer-ом до логирования и до ответа.
 
 ### Фильтр секретов
 
@@ -555,3 +574,103 @@ src/skills/cli-gateway/
 10. Тесты
 
 Каждый этап — отдельный коммит, каждый модуль тестируется изолированно.
+
+---
+
+## Пошаговый план внедрения (A-J)
+
+Ниже прикладной roadmap, привязанный к текущей структуре репозитория.
+
+### Этап A: kill-switch и проверка статуса
+
+**Файлы:** `src/skills/cli-gateway/config.ts`
+
+- Добавить `isKillSwitchActive(): boolean`.
+- Проверять оба источника: `STOP.flag` и `CLI_GATEWAY_KILL=1`.
+
+**Стоп-пойнт:** при наличии `STOP.flag` функция возвращает `true`.
+
+**Smoke-test:** создать `STOP.flag`, вызвать gateway, получить `KILL_SWITCH_ACTIVE`.
+
+### Этап B: kill-switch в execute path
+
+**Файлы:** `src/skills/cli-gateway/index.ts`
+
+- В `system_cli_gateway` проверять `isKillSwitchActive()` перед любой валидацией команды.
+- Возвращать типизированную ошибку `KILL_SWITCH_ACTIVE`.
+
+**Стоп-пойнт:** ни одна команда не запускается при активном kill-switch.
+
+### Этап C: минимальный env для spawn
+
+**Файлы:** `src/skills/cli-gateway/index.ts`
+
+- Передавать в `spawn` только `PATH`, `HOME`/`USERPROFILE`, `LANG`.
+- Не передавать `process.env` целиком.
+
+**Стоп-пойнт:** команды запускаются, но env не содержит API ключей приложения.
+
+### Этап D: trusted resolver без cmd-shell
+
+**Файлы:** `src/skills/cli-gateway/path-resolver.ts`
+
+- На Windows использовать `where.exe` напрямую, без `cmd /c`.
+- Для `pathOverride` делать `realpath` перед проверкой trusted dirs.
+- Явно учитывать `projectRoot/tools` как trusted-path.
+
+**Стоп-пойнт:** путь из недоверенной директории отклоняется.
+
+### Этап E: защита от shell-инъекций в args
+
+**Файлы:** `src/skills/cli-gateway/index.ts` (или выделить `validator.ts`)
+
+- Добавить проверку каждого аргумента на `&&`, `||`, `|`, `;`, `` ` ``, `$(`, `>`, `>>`, `\n`, `\r`.
+- При срабатывании возвращать `SHELL_INJECTION_DETECTED`.
+
+**Стоп-пойнт:** payload с `&& format c:` блокируется до запуска процесса.
+
+### Этап F: порядок sanitize -> log -> response
+
+**Файлы:** `src/skills/cli-gateway/index.ts`, `src/skills/cli-gateway/sanitizer.ts`
+
+- Гарантировать, что логируется только scrubbed output.
+- Никогда не логировать env дочернего процесса.
+
+**Стоп-пойнт:** в логах отсутствуют сырые токены.
+
+### Этап G: confirm-flow без заглушек
+
+**Файлы:** `src/skills/cli-gateway/index.ts`, `src/skills/cli-gateway/confirmation.ts`
+
+- Убрать недоопределённые заглушки (`makeBlockedResponse`).
+- Согласовать поток: `CONFIRMATION_REQUIRED` -> повторный `system_cli_gateway` с `confirm_token`.
+- `system_cli_gateway_confirm` оставить только как опциональный helper или убрать из MVP-1.
+
+**Стоп-пойнт:** опасная команда выполняется только с валидным токеном.
+
+### Этап H: усиление sanitizer и лимит вывода
+
+**Файлы:** `src/skills/cli-gateway/sanitizer.ts`
+
+- Расширить regex-паттерны (API keys, bearer, private keys, connection strings).
+- Ограничить итоговый stdout/stderr (например, 64 KB, с явной пометкой обрезки).
+
+**Стоп-пойнт:** секреты редактируются, oversized output обрезается контролируемо.
+
+### Этап I: unit-тесты
+
+**Файлы:** `src/skills/cli-gateway/*` + тестовый каталог/скрипты
+
+- Тесты для kill-switch, validator, resolver, sanitizer, confirm store.
+
+**Стоп-пойнт:** тесты проходят локально и в CI.
+
+### Этап J: smoke-тесты end-to-end
+
+**Сценарии:**
+1. SAFE: `git status` проходит.
+2. Инъекция: `["status","&&","format","c:"]` блокируется.
+3. Kill-switch: `STOP.flag` блокирует все команды.
+4. CONFIRM: `git push`/`npm install` требует токен и выполняется только после подтверждения.
+
+**Финальный стоп-пойнт:** все smoke-тесты зелёные, MVP-1 закрыт.

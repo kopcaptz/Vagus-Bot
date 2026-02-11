@@ -5,6 +5,7 @@
 
 import path from 'path';
 import { spawn } from 'child_process';
+import fs from 'fs';
 import { cliGatewayConfig } from './config.js';
 
 export const TRUSTED_PATH_VIOLATION = 'TRUSTED_PATH_VIOLATION';
@@ -42,8 +43,8 @@ function isPathTrusted(filePath: string): boolean {
 function findExecutablePath(name: string): Promise<string> {
   return new Promise((resolve, reject) => {
     const isWin = process.platform === 'win32';
-    const cmd = isWin ? 'cmd' : 'which';
-    const args = isWin ? ['/c', 'where', name] : [name];
+    const cmd = isWin ? 'where' : 'which';
+    const args = [name];
 
     const child = spawn(cmd, args, { shell: false });
     let stdout = '';
@@ -79,12 +80,19 @@ export async function resolveExecutable(name: string): Promise<string> {
     resolvedPath = await findExecutablePath(name);
   }
 
-  resolvedPath = path.resolve(resolvedPath);
-  if (!isPathTrusted(resolvedPath)) {
-    const err = new Error(`Binary path is not in a trusted directory: ${resolvedPath}`) as Error & { code: string };
+  const normalizedPath = path.resolve(resolvedPath);
+  let realPath = normalizedPath;
+  try {
+    realPath = fs.realpathSync(normalizedPath);
+  } catch {
+    // keep normalizedPath for error reporting when file does not exist
+  }
+
+  if (!isPathTrusted(realPath)) {
+    const err = new Error(`Binary path is not in a trusted directory: ${realPath}`) as Error & { code: string };
     err.code = TRUSTED_PATH_VIOLATION;
     throw err;
   }
 
-  return resolvedPath;
+  return realPath;
 }
