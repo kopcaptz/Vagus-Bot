@@ -1,5 +1,7 @@
 import { Router, Response } from 'express';
 import multer from 'multer';
+import { readFile, unlink } from 'node:fs/promises';
+import os from 'node:os';
 import {
   getSelectedModel, setSelectedModel, getModelConfig,
   getSelectedAuthProvider, setSelectedAuthProvider,
@@ -40,7 +42,8 @@ import { getContextForAI, getContextStats } from '../db/context.js';
 import { getContextConfig, setContextConfig, type ContextConfig } from '../config/context.js';
 import { getPersonas, getSelectedPersona, setSelectedPersona, savePersona, deletePersona, type PersonaId } from '../config/personas.js';
 
-const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } });
+// Store uploads on disk to avoid unbounded RAM pressure from multipart payloads.
+const upload = multer({ dest: os.tmpdir(), limits: { fileSize: 5 * 1024 * 1024 } });
 
 export async function handleAIRequest(res: Response, incoming: IncomingMessage): Promise<void> {
   const result = await channelRegistry.handleMessage(incoming);
@@ -430,13 +433,17 @@ export function createApiRouter() {
       const chatId = req.body?.chatId?.trim() || undefined;
       const files = (req.files as Express.Multer.File[]) ?? [];
 
-      if (!text && files.length === 0) {
-        return res.status(400).json({ error: 'Требуется message или изображения (images)' });
+      const imageAttachments: ImageAttachment[] = [];
+      for (const f of files) {
+        if (!f.mimetype?.startsWith('image/')) continue;
+        if (!f.path) continue;
+        const buf = await readFile(f.path);
+        imageAttachments.push({ data: buf.toString('base64'), mediaType: f.mimetype || 'image/jpeg' });
       }
 
-      const imageAttachments: ImageAttachment[] = files
-        .filter(f => f.mimetype?.startsWith('image/'))
-        .map(f => ({ data: f.buffer.toString('base64'), mediaType: f.mimetype || 'image/jpeg' }));
+      if (!text && imageAttachments.length === 0) {
+        return res.status(400).json({ error: 'Требуется message или изображения (images)' });
+      }
 
       const incoming: IncomingMessage = {
         channelId: 'web',
@@ -451,6 +458,14 @@ export function createApiRouter() {
     } catch (error: unknown) {
       const msg = error instanceof Error ? error.message : 'Ошибка AI обработки';
       res.status(500).json({ error: msg });
+    } finally {
+      const files = (req.files as Express.Multer.File[]) ?? [];
+      await Promise.all(
+        files
+          .map((file) => file.path)
+          .filter((p): p is string => !!p)
+          .map((filePath) => unlink(filePath).catch(() => undefined)),
+      );
     }
   });
 
