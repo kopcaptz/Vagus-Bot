@@ -7,7 +7,7 @@
 
 import { Bot } from 'grammy';
 import type { Context } from 'grammy';
-import type { ChannelPlugin, OutgoingMessage, IncomingMessage } from '../types.js';
+import type { ChannelPlugin, OutgoingMessage, IncomingMessage, MessageResult } from '../types.js';
 import type { ImageAttachment } from '../../ai/models.js';
 import { channelRegistry } from '../registry.js';
 import { config } from '../../config/config.js';
@@ -152,17 +152,7 @@ export class TelegramChannel implements ChannelPlugin {
     try { await ctx.api.deleteMessage(chatId!, statusMsg.message_id); } catch {}
 
     if (result) {
-      let reply = `🤖 ${result.text}`;
-      if (result.contextUsed && result.contextUsed > 0) {
-        reply += `\n\n📚 Контекст: ${result.contextUsed} предыдущих сообщений`;
-      }
-      if (result.tokensUsed) {
-        reply += `\n💡 Токенов: ${result.tokensUsed}`;
-      }
-      if (result.model) {
-        reply += `\n(Модель: ${result.model})`;
-      }
-      await this.sendLongMessage(ctx, reply);
+      await this.sendResult(ctx, result);
     }
   }
 
@@ -212,18 +202,26 @@ export class TelegramChannel implements ChannelPlugin {
       try { await ctx.api.deleteMessage(chatId!, statusMsg.message_id); } catch {}
 
       if (result) {
-        let reply = `🤖 ${result.text}`;
-        if (result.contextUsed && result.contextUsed > 0) {
-          reply += `\n\n📚 Контекст: ${result.contextUsed} предыдущих сообщений`;
-        }
-        if (result.tokensUsed) reply += `\n💡 Токенов: ${result.tokensUsed}`;
-        if (result.model) reply += `\n(Модель: ${result.model})`;
-        await this.sendLongMessage(ctx, reply);
+        await this.sendResult(ctx, result);
       }
     } catch (error) {
       console.error('❌ Ошибка обработки фото:', error);
       await ctx.reply('❌ Не удалось проанализировать изображение.');
     }
+  }
+
+  private async sendResult(ctx: Context, result: MessageResult): Promise<void> {
+    let reply = `🤖 ${result.text}`;
+    if (result.contextUsed && result.contextUsed > 0) {
+      reply += `\n\n📚 Контекст: ${result.contextUsed} предыдущих сообщений`;
+    }
+    if (result.tokensUsed) {
+      reply += `\n💡 Токенов: ${result.tokensUsed}`;
+    }
+    if (result.model) {
+      reply += `\n(Модель: ${result.model})`;
+    }
+    await this.sendLongMessage(ctx, reply);
   }
 
   // ============================================
