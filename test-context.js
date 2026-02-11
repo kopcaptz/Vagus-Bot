@@ -73,7 +73,7 @@ console.log(`✅ Сохранено ${dialog.length * 2} сообщений\n`);
 // Тестируем получение контекста
 console.log('4️⃣ Получение контекста для нового сообщения...');
 const newMessage = 'А как добавить элемент в список?';
-const contextMessages = getContextForAI(testChatId, newMessage);
+const contextMessages = await getContextForAI(testChatId, newMessage);
 
 console.log(`📚 Контекст загружен: ${contextMessages.length} сообщений\n`);
 console.log('📝 Сообщения в контексте:');
