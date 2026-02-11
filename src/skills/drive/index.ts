@@ -286,7 +286,7 @@ function driveDelete(targetPath: string): string {
   }
 }
 
-function driveOrganize(dirPath: string, strategy: string): string {
+async function driveOrganize(dirPath: string, strategy: string): Promise<string> {
   const resolved = resolveInJailStrict(dirPath || '.');
   if (!resolved) return 'Ошибка: путь вне корня диска или недопустим.';
   if (!fs.existsSync(resolved)) return `Ошибка: директория не найдена: ${dirPath || '.'}`;
@@ -294,7 +294,7 @@ function driveOrganize(dirPath: string, strategy: string): string {
   if (!stat.isDirectory()) return 'Ошибка: путь не является директорией.';
 
   const useDate = strategy === 'date';
-  const entries = fs.readdirSync(resolved, { withFileTypes: true });
+  const entries = await fs.promises.readdir(resolved, { withFileTypes: true });
   const files = entries.filter(e => e.isFile());
   if (files.length === 0) return '(в директории нет файлов для организации)';
 
@@ -302,23 +302,47 @@ function driveOrganize(dirPath: string, strategy: string): string {
   const moved: string[] = [];
 
   if (useDate) {
+    const tasks = files.map(async (entry) => {
+      try {
+        const full = path.join(resolved, entry.name);
+        const s = await fs.promises.stat(full);
+        const mtime = s.mtime;
+        const key = `${mtime.getFullYear()}-${String(mtime.getMonth() + 1).padStart(2, '0')}`;
+        return { name: entry.name, key };
+      } catch {
+        return null;
+      }
+    });
+
+    const results = await Promise.all(tasks);
     const byDate = new Map<string, string[]>();
-    for (const entry of files) {
-      const full = path.join(resolved, entry.name);
-      const mtime = fs.statSync(full).mtime;
-      const key = `${mtime.getFullYear()}-${String(mtime.getMonth() + 1).padStart(2, '0')}`;
+
+    for (const res of results) {
+      if (!res) continue;
+      const { name, key } = res;
       if (!byDate.has(key)) byDate.set(key, []);
-      byDate.get(key)!.push(entry.name);
+      byDate.get(key)!.push(name);
     }
+
     for (const [folderName, names] of byDate) {
       const subDir = path.join(resolved, folderName);
-      fs.mkdirSync(subDir, { recursive: true });
-      for (const name of names) {
+      await fs.promises.mkdir(subDir, { recursive: true });
+      await Promise.all(names.map(async (name) => {
         const src = path.join(resolved, name);
         const dst = path.join(subDir, name);
-        fs.renameSync(src, dst);
-        moved.push(`${name} -> ${folderName}/`);
-      }
+        try {
+          await fs.promises.rename(src, dst);
+          moved.push(`${name} -> ${folderName}/`);
+        } catch (e) {
+          if ((e as NodeJS.ErrnoException).code === 'EXDEV') {
+            await fs.promises.cp(src, dst, { recursive: true });
+            await fs.promises.rm(src, { recursive: true });
+            moved.push(`${name} -> ${folderName}/`);
+          } else {
+            console.error(`[DriveSkill] Failed to move ${name}:`, e);
+          }
+        }
+      }));
     }
   } else {
     const byExt = new Map<string, string[]>();
@@ -330,13 +354,23 @@ function driveOrganize(dirPath: string, strategy: string): string {
     }
     for (const [folderName, names] of byExt) {
       const subDir = path.join(resolved, folderName);
-      fs.mkdirSync(subDir, { recursive: true });
-      for (const name of names) {
+      await fs.promises.mkdir(subDir, { recursive: true });
+      await Promise.all(names.map(async (name) => {
         const src = path.join(resolved, name);
         const dst = path.join(subDir, name);
-        fs.renameSync(src, dst);
-        moved.push(`${name} -> ${folderName}/`);
-      }
+        try {
+          await fs.promises.rename(src, dst);
+          moved.push(`${name} -> ${folderName}/`);
+        } catch (e) {
+          if ((e as NodeJS.ErrnoException).code === 'EXDEV') {
+            await fs.promises.cp(src, dst, { recursive: true });
+            await fs.promises.rm(src, { recursive: true });
+            moved.push(`${name} -> ${folderName}/`);
+          } else {
+            console.error(`[DriveSkill] Failed to move ${name}:`, e);
+          }
+        }
+      }));
     }
   }
 
