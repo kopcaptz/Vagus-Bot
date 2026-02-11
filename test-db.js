@@ -1,7 +1,11 @@
 // Тестирование функций базы данных
+import { initDatabase } from './src/db/database.ts';
 import { saveMessage, createOrUpdateUser, createOrUpdateSession, getMessageHistory, getDatabaseStats, getAllUsers } from './src/db/queries.ts';
 
 console.log('🧪 Тестирование базы данных...\n');
+
+// Инициализация БД
+initDatabase();
 
 // 1. Создаем тестового пользователя
 console.log('1️⃣ Создание пользователя...');

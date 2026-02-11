@@ -1,10 +1,14 @@
 // Тестирование контекстной памяти
+import { initDatabase } from './src/db/database.ts';
 import { saveMessage, createOrUpdateUser, createOrUpdateSession } from './src/db/queries.ts';
 import { getContextForAI, getContextStats } from './src/db/context.ts';
 import { getContextConfig, setContextConfig } from './src/config/context.ts';
 import { processWithAI } from './src/ai/models.ts';
 
 console.log('🧪 Тестирование контекстной памяти...\n');
+
+// Инициализация БД
+initDatabase();
 
 // Настройка контекста
 console.log('1️⃣ Настройка контекста...');

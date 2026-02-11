@@ -45,7 +45,7 @@ export function getMessageHistory(chatId: string, limit: number = 50): Message[]
   const stmt = db.prepare(`
     SELECT * FROM messages
     WHERE chat_id = ?
-    ORDER BY created_at DESC
+    ORDER BY created_at DESC, id DESC
     LIMIT ?
   `);
 
@@ -65,7 +65,7 @@ export function getRecentMessages(chatId: string, limit: number = 10): Message[]
   const stmt = db.prepare(`
     SELECT * FROM messages
     WHERE chat_id = ?
-    ORDER BY created_at DESC
+    ORDER BY created_at DESC, id DESC
     LIMIT ?
   `);
 
