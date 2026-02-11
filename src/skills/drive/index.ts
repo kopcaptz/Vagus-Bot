@@ -207,7 +207,7 @@ function driveTree(dirPath: string, depthLimit: number = TREE_MAX_DEPTH): string
   }
 }
 
-function driveRead(filePath: string): string {
+async function driveRead(filePath: string): Promise<string> {
   const resolved = resolveInJailStrict(filePath);
   if (!resolved) return 'Ошибка: путь вне корня диска или недопустим.';
   if (!fs.existsSync(resolved)) return `Ошибка: файл не найден: ${filePath}`;
@@ -218,7 +218,7 @@ function driveRead(filePath: string): string {
     return `Binary file [${formatSize(stat.size)}]`;
   }
   try {
-    return fs.readFileSync(resolved, { encoding: ENCODING });
+    return await fs.promises.readFile(resolved, { encoding: ENCODING });
   } catch (err) {
     return `Ошибка чтения: ${err instanceof Error ? err.message : String(err)}`;
   }
