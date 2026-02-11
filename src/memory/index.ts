@@ -24,8 +24,8 @@ function generateFactId(prefix: string): string {
  */
 export async function loadUserMemoriesCompat(userId: string): Promise<string | null> {
   await runMigrationIfNeeded(userId);
-  const profile = readProfileFacts(userId);
-  const working = readWorkingFacts(userId);
+  const profile = await readProfileFacts(userId);
+  const working = await readWorkingFacts(userId);
   if (profile.length === 0 && working.length === 0) return null;
 
   const lines: string[] = [];
@@ -61,7 +61,7 @@ export async function saveFact(
   const factId = generateFactId(prefix);
   const fact: FactLine = { id: factId, type, importance, expiresAt, text };
 
-  const existing = readAllFacts(userId);
+  const existing = await readAllFacts(userId);
   const textLower = text.toLowerCase();
   for (const f of existing) {
     const fLower = f.text.toLowerCase();
@@ -83,7 +83,7 @@ export async function saveFact(
     // If embedding/search fails, proceed without semantic dedup
   }
 
-  let userMeta = readUserMeta(userId);
+  let userMeta = await readUserMeta(userId);
   if (type === 'profile' && userMeta.profileCount >= policy.maxProfileFacts) {
     console.log(`[Memory v2] Save rejected: profile limit (${policy.maxProfileFacts})`);
     return { ok: false, reason: 'limit' };
@@ -95,13 +95,13 @@ export async function saveFact(
   const total = userMeta.profileCount + userMeta.workingCount + userMeta.archiveCount;
   if (total + 1 > policy.maxFactsPerUser) {
     const toEvict = total + 1 - policy.maxFactsPerUser;
-    const evicted = evictOldestArchive(userId, toEvict);
+    const evicted = await evictOldestArchive(userId, toEvict);
     if (evicted > 0) console.log(`[Memory v2] Evicted ${evicted} archive fact(s) for [${userId}]`);
-    userMeta = readUserMeta(userId);
+    userMeta = await readUserMeta(userId);
   }
 
-  appendFact(userId, fact);
-  refreshUserMetaCounts(userId);
+  await appendFact(userId, fact);
+  await refreshUserMetaCounts(userId);
 
   console.log(`[Memory v2] Saved [${userId}] ${factId} type=${type} imp=${importance}`);
 
@@ -131,7 +131,7 @@ export async function forgetFact(userId: string, queryOrId: string): Promise<{ o
   let factId: string | null = null;
 
   if (idLike) {
-    const found = findFactById(userId, queryOrId.trim());
+    const found = await findFactById(userId, queryOrId.trim());
     if (found) factId = found.fact.id;
   }
   if (!factId) {
@@ -146,13 +146,13 @@ export async function forgetFact(userId: string, queryOrId: string): Promise<{ o
     return { ok: false, reason: 'not_found' };
   }
 
-  const deleted = deleteFactById(userId, factId);
+  const deleted = await deleteFactById(userId, factId);
   if (!deleted) {
     return { ok: false, reason: 'not_found' };
   }
 
   const n = deleteChunksByFactId(userId, factId);
-  refreshUserMetaCounts(userId);
+  await refreshUserMetaCounts(userId);
   console.log(`[Memory v2] Forget [${userId}] ${factId}, ${n} chunks removed`);
   return { ok: true, deleted: factId };
 }
@@ -168,7 +168,7 @@ export async function updateFact(userId: string, idOrQuery: string, newText: str
   let factId: string | null = null;
 
   if (idLike) {
-    const found = findFactById(userId, idOrQuery.trim());
+    const found = await findFactById(userId, idOrQuery.trim());
     if (found) factId = found.fact.id;
   }
   if (!factId) {
@@ -183,7 +183,7 @@ export async function updateFact(userId: string, idOrQuery: string, newText: str
     return { ok: false, reason: 'not_found' };
   }
 
-  const updated = updateFactById(userId, factId, newText.trim());
+  const updated = await updateFactById(userId, factId, newText.trim());
   if (!updated) {
     return { ok: false, reason: 'not_found' };
   }
@@ -205,7 +205,7 @@ export async function updateFact(userId: string, idOrQuery: string, newText: str
  */
 export async function readMemories(userId: string): Promise<string> {
   await runMigrationIfNeeded(userId);
-  const facts = readAllFacts(userId);
+  const facts = await readAllFacts(userId);
   if (facts.length === 0) return 'Нет сохранённых воспоминаний.';
   return facts.map((f) => `- ${f.text}`).join('\n');
 }

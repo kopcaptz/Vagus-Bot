@@ -2,7 +2,7 @@
  * Memory v2 — чтение фактов из .md файлов.
  */
 
-import fs from 'fs';
+import fs from 'fs/promises';
 import path from 'path';
 import { parseFactLine } from './format.js';
 import type { FactLine, FactType } from '../../types.js';
@@ -34,33 +34,38 @@ export function getMetaPath(userId: string): string {
 /**
  * Read and parse all fact lines from a single .md file.
  */
-export function readFactsFromFile(filePath: string): FactLine[] {
-  if (!fs.existsSync(filePath)) return [];
+export async function readFactsFromFile(filePath: string): Promise<FactLine[]> {
+  try {
+    const content = await fs.readFile(filePath, 'utf-8');
+    const lines = content.split('\n');
+    const facts: FactLine[] = [];
 
-  const content = fs.readFileSync(filePath, 'utf-8');
-  const lines = content.split('\n');
-  const facts: FactLine[] = [];
+    for (const line of lines) {
+      const fact = parseFactLine(line);
+      if (fact) facts.push(fact);
+    }
 
-  for (const line of lines) {
-    const fact = parseFactLine(line);
-    if (fact) facts.push(fact);
+    return facts;
+  } catch (err: unknown) {
+    if ((err as { code?: string }).code === 'ENOENT') {
+      return [];
+    }
+    throw err;
   }
-
-  return facts;
 }
 
 /**
  * Read profile facts (all).
  */
-export function readProfileFacts(userId: string): FactLine[] {
+export async function readProfileFacts(userId: string): Promise<FactLine[]> {
   return readFactsFromFile(getProfilePath(userId));
 }
 
 /**
  * Read working facts, optionally filtering out expired (expiresAt < today).
  */
-export function readWorkingFacts(userId: string, filterExpired: boolean = true): FactLine[] {
-  const facts = readFactsFromFile(getWorkingPath(userId));
+export async function readWorkingFacts(userId: string, filterExpired: boolean = true): Promise<FactLine[]> {
+  const facts = await readFactsFromFile(getWorkingPath(userId));
   if (!filterExpired) return facts;
 
   const today = new Date().toISOString().slice(0, 10);
@@ -70,33 +75,44 @@ export function readWorkingFacts(userId: string, filterExpired: boolean = true):
 /**
  * Read archive facts.
  */
-export function readArchiveFacts(userId: string): FactLine[] {
+export async function readArchiveFacts(userId: string): Promise<FactLine[]> {
   return readFactsFromFile(getArchivePath(userId));
 }
 
 /**
  * Read all facts for a user (profile + non-expired working + archive).
  */
-export function readAllFacts(userId: string): FactLine[] {
-  return [
-    ...readProfileFacts(userId),
-    ...readWorkingFacts(userId),
-    ...readArchiveFacts(userId),
-  ];
+export async function readAllFacts(userId: string): Promise<FactLine[]> {
+  const [profile, working, archive] = await Promise.all([
+    readProfileFacts(userId),
+    readWorkingFacts(userId),
+    readArchiveFacts(userId),
+  ]);
+
+  return [...profile, ...working, ...archive];
 }
 
 /**
  * Find a fact by id in any of the three files.
  */
-export function findFactById(userId: string, factId: string): { fact: FactLine; file: FactType } | null {
-  const profile = readProfileFacts(userId).find((f) => f.id === factId);
+export async function findFactById(userId: string, factId: string): Promise<{ fact: FactLine; file: FactType } | null> {
+  // Check profile first
+  const profileFacts = await readProfileFacts(userId);
+  const profile = profileFacts.find((f) => f.id === factId);
   if (profile) return { fact: profile, file: 'profile' };
 
-  const working = readFactsFromFile(getWorkingPath(userId));
-  const wk = working.find((f) => f.id === factId);
+  // Check working
+  const workingFacts = await readFactsFromFile(getWorkingPath(userId)); // explicit file read to avoid filtering if any? findFactById probably wants raw facts?
+  // Wait, readWorkingFacts filters expired by default. findFactById might want to find expired facts too?
+  // The original code used readFactsFromFile(getWorkingPath(userId)) directly for working.
+  // So I should do the same.
+
+  const wk = workingFacts.find((f) => f.id === factId);
   if (wk) return { fact: wk, file: 'working' };
 
-  const archive = readArchiveFacts(userId).find((f) => f.id === factId);
+  // Check archive
+  const archiveFacts = await readArchiveFacts(userId);
+  const archive = archiveFacts.find((f) => f.id === factId);
   if (archive) return { fact: archive, file: 'archive' };
 
   return null;
