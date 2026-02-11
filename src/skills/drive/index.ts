@@ -106,40 +106,43 @@ function ensureManifest(): void {
 // Tool implementations
 // ============================================
 
-function driveList(dirPath: string): string {
+async function driveList(dirPath: string): Promise<string> {
   try {
     const resolved = resolveInJailStrict(dirPath ?? '');
     if (!resolved) return 'Ошибка: путь вне корня диска или недопустим.';
     if (!fs.existsSync(resolved)) return `Ошибка: директория не найдена: ${dirPath || '.'}`;
-    const stat = fs.statSync(resolved);
+    const stat = await fs.promises.stat(resolved);
     if (!stat.isDirectory()) return 'Ошибка: путь не является директорией.';
 
-    const entries = fs.readdirSync(resolved, { withFileTypes: true });
+    const entries = await fs.promises.readdir(resolved, { withFileTypes: true });
     if (entries.length === 0) return '(директория пуста)';
 
     const root = getDriveRoot();
     const relDir = path.relative(root, resolved) || '.';
     const lines: string[] = [`Содержимое: ${relDir}/`];
-    let count = 0;
 
-    for (const entry of entries) {
-      if (count >= MAX_DIR_ENTRIES) {
-        lines.push(`... и ещё ${entries.length - MAX_DIR_ENTRIES} элементов`);
-        break;
-      }
+    const entriesToProcess = entries.slice(0, MAX_DIR_ENTRIES);
+
+    const results = await Promise.all(entriesToProcess.map(async (entry) => {
       try {
         const full = path.join(resolved, entry.name);
-        const s = fs.statSync(full);
         if (entry.isDirectory()) {
-          lines.push(`  [DIR]  ${entry.name}/`);
+          return `  [DIR]  ${entry.name}/`;
         } else {
-          lines.push(`  [FILE] ${entry.name} (${formatSize(s.size)})`);
+          const s = await fs.promises.stat(full);
+          return `  [FILE] ${entry.name} (${formatSize(s.size)})`;
         }
       } catch {
-        lines.push(`  [???]  ${entry.name}`);
+        return `  [???]  ${entry.name}`;
       }
-      count++;
+    }));
+
+    lines.push(...results);
+
+    if (entries.length > MAX_DIR_ENTRIES) {
+      lines.push(`... и ещё ${entries.length - MAX_DIR_ENTRIES} элементов`);
     }
+
     return lines.join('\n');
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
