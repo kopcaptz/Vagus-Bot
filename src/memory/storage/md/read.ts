@@ -34,33 +34,36 @@ export function getMetaPath(userId: string): string {
 /**
  * Read and parse all fact lines from a single .md file.
  */
-export function readFactsFromFile(filePath: string): FactLine[] {
-  if (!fs.existsSync(filePath)) return [];
+export async function readFactsFromFile(filePath: string): Promise<FactLine[]> {
+  try {
+    const content = await fs.promises.readFile(filePath, 'utf-8');
+    const lines = content.split('\n');
+    const facts: FactLine[] = [];
 
-  const content = fs.readFileSync(filePath, 'utf-8');
-  const lines = content.split('\n');
-  const facts: FactLine[] = [];
+    for (const line of lines) {
+      const fact = parseFactLine(line);
+      if (fact) facts.push(fact);
+    }
 
-  for (const line of lines) {
-    const fact = parseFactLine(line);
-    if (fact) facts.push(fact);
+    return facts;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return [];
+    throw error;
   }
-
-  return facts;
 }
 
 /**
  * Read profile facts (all).
  */
-export function readProfileFacts(userId: string): FactLine[] {
+export async function readProfileFacts(userId: string): Promise<FactLine[]> {
   return readFactsFromFile(getProfilePath(userId));
 }
 
 /**
  * Read working facts, optionally filtering out expired (expiresAt < today).
  */
-export function readWorkingFacts(userId: string, filterExpired: boolean = true): FactLine[] {
-  const facts = readFactsFromFile(getWorkingPath(userId));
+export async function readWorkingFacts(userId: string, filterExpired: boolean = true): Promise<FactLine[]> {
+  const facts = await readFactsFromFile(getWorkingPath(userId));
   if (!filterExpired) return facts;
 
   const today = new Date().toISOString().slice(0, 10);
@@ -70,34 +73,41 @@ export function readWorkingFacts(userId: string, filterExpired: boolean = true):
 /**
  * Read archive facts.
  */
-export function readArchiveFacts(userId: string): FactLine[] {
+export async function readArchiveFacts(userId: string): Promise<FactLine[]> {
   return readFactsFromFile(getArchivePath(userId));
 }
 
 /**
  * Read all facts for a user (profile + non-expired working + archive).
  */
-export function readAllFacts(userId: string): FactLine[] {
+export async function readAllFacts(userId: string): Promise<FactLine[]> {
+  const [profile, working, archive] = await Promise.all([
+    readProfileFacts(userId),
+    readWorkingFacts(userId),
+    readArchiveFacts(userId),
+  ]);
   return [
-    ...readProfileFacts(userId),
-    ...readWorkingFacts(userId),
-    ...readArchiveFacts(userId),
+    ...profile,
+    ...working,
+    ...archive,
   ];
 }
 
 /**
  * Find a fact by id in any of the three files.
  */
-export function findFactById(userId: string, factId: string): { fact: FactLine; file: FactType } | null {
-  const profile = readProfileFacts(userId).find((f) => f.id === factId);
-  if (profile) return { fact: profile, file: 'profile' };
+export async function findFactById(userId: string, factId: string): Promise<{ fact: FactLine; file: FactType } | null> {
+  const profile = await readProfileFacts(userId);
+  const pFact = profile.find((f) => f.id === factId);
+  if (pFact) return { fact: pFact, file: 'profile' };
 
-  const working = readFactsFromFile(getWorkingPath(userId));
+  const working = await readFactsFromFile(getWorkingPath(userId));
   const wk = working.find((f) => f.id === factId);
   if (wk) return { fact: wk, file: 'working' };
 
-  const archive = readArchiveFacts(userId).find((f) => f.id === factId);
-  if (archive) return { fact: archive, file: 'archive' };
+  const archive = await readArchiveFacts(userId);
+  const arFact = archive.find((f) => f.id === factId);
+  if (arFact) return { fact: arFact, file: 'archive' };
 
   return null;
 }
