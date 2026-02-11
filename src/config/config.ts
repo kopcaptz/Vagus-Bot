@@ -1,6 +1,7 @@
 import dotenv from 'dotenv';
 import { readFileSync, writeFileSync, existsSync } from 'fs';
 import path, { join } from 'path';
+import type { AuthProviderId } from './providers.js';
 
 dotenv.config();
 
@@ -16,11 +17,13 @@ export type OpenRouterTier = keyof typeof OPENROUTER_MODEL_TIERS;
 export type AIModel = OpenRouterTier | 'none';
 
 export interface ModelConfig {
-  provider: 'openai' | 'anthropic' | 'none';
+  provider: 'openai' | 'anthropic' | 'google_gemini' | 'none';
   model: string;
   apiKey: string;
   /** When set, use this base URL (e.g. OpenRouter) and add attribution headers. */
   baseUrl?: string;
+  /** Auth provider that supplied the credentials */
+  authProvider?: AuthProviderId;
 }
 
 // Функция для получения актуальных значений из env
@@ -83,31 +86,83 @@ export const config = {
     const valid: OpenRouterTier[] = ['FREE', 'BUDGET', 'PRO_CODE', 'FRONTIER', 'FREE_TOP'];
     return valid.includes(v as OpenRouterTier) ? (v as AIModel) : 'BUDGET';
   })(),
+  /** Google OAuth config */
+  googleOAuth: {
+    clientId: getEnvValue('GOOGLE_OAUTH_CLIENT_ID'),
+    clientSecret: getEnvValue('GOOGLE_OAUTH_CLIENT_SECRET'),
+    redirectUri: getEnvValue('GOOGLE_OAUTH_REDIRECT_URI'),
+    /** Default Gemini model when using Google OAuth */
+    defaultModel: getEnvValue('GOOGLE_GEMINI_MODEL', 'gemini-2.0-flash'),
+  },
 };
 
 // Путь к файлу с выбранной моделью
 const MODEL_CONFIG_PATH = join(process.cwd(), '.model-config.json');
 
 const VALID_AI_MODELS: AIModel[] = ['FREE', 'BUDGET', 'PRO_CODE', 'FRONTIER', 'FREE_TOP', 'none'];
+const VALID_AUTH_PROVIDERS: AuthProviderId[] = ['openrouter_key', 'google_oauth'];
+
+// ─── Auth provider selection ─────────────────────────────────────
+
+interface ModelConfigFile {
+  model?: string;
+  authProvider?: AuthProviderId;
+  /** Выбранная Gemini-модель при Google OAuth */
+  googleModel?: string;
+}
+
+function readModelConfigFile(): ModelConfigFile {
+  if (!existsSync(MODEL_CONFIG_PATH)) return {};
+  try {
+    return JSON.parse(readFileSync(MODEL_CONFIG_PATH, 'utf-8'));
+  } catch {
+    return {};
+  }
+}
+
+function writeModelConfigFile(updates: Partial<ModelConfigFile>): void {
+  const current = readModelConfigFile();
+  writeFileSync(MODEL_CONFIG_PATH, JSON.stringify({ ...current, ...updates }, null, 2));
+}
+
+// ─── Auth Provider ───────────────────────────────────────────────
+
+export function getSelectedAuthProvider(): AuthProviderId {
+  const data = readModelConfigFile();
+  if (data.authProvider && VALID_AUTH_PROVIDERS.includes(data.authProvider)) {
+    return data.authProvider;
+  }
+  return 'openrouter_key';
+}
+
+export function setSelectedAuthProvider(provider: AuthProviderId): void {
+  writeModelConfigFile({ authProvider: provider });
+}
+
+// ─── Google model selection (within Google OAuth) ────────────────
+
+export function getSelectedGoogleModel(): string {
+  const data = readModelConfigFile();
+  return data.googleModel || config.googleOAuth.defaultModel;
+}
+
+export function setSelectedGoogleModel(model: string): void {
+  writeModelConfigFile({ googleModel: model });
+}
+
+// ─── OpenRouter model (existing logic) ───────────────────────────
 
 // Загрузка выбранной модели (если ещё не выбрана — используем DEFAULT_MODEL из env)
 export function getSelectedModel(): AIModel {
-  if (existsSync(MODEL_CONFIG_PATH)) {
-    try {
-      const data = readFileSync(MODEL_CONFIG_PATH, 'utf-8');
-      const parsed = JSON.parse(data);
-      const stored = (parsed.model || 'none') as string;
-      if (stored !== 'none' && VALID_AI_MODELS.includes(stored as AIModel)) return stored as AIModel;
-    } catch {
-      // fall through to default
-    }
-  }
+  const data = readModelConfigFile();
+  const stored = (data.model || 'none') as string;
+  if (stored !== 'none' && VALID_AI_MODELS.includes(stored as AIModel)) return stored as AIModel;
   return config.defaultModel;
 }
 
 // Сохранение выбранной модели
 export function setSelectedModel(model: AIModel) {
-  writeFileSync(MODEL_CONFIG_PATH, JSON.stringify({ model }, null, 2));
+  writeModelConfigFile({ model });
 }
 
 /** При первом запуске записать модель по умолчанию, чтобы бот работал без выбора в веб-интерфейсе. */
@@ -118,17 +173,41 @@ export function ensureDefaultModel(): void {
   }
 }
 
-// Получение конфигурации модели
+// ─── Model config resolver ───────────────────────────────────────
+
+/**
+ * Получение конфигурации модели.
+ * Учитывает выбранный authProvider:
+ *  - openrouter_key → OpenRouter (как раньше)
+ *  - google_oauth   → Google Gemini через OAuth access_token
+ *
+ * Для google_oauth apiKey будет заполнен при вызове (через getValidAccessToken).
+ * Здесь ставим placeholder — callProvider проверит и подставит реальный токен.
+ */
 export function getModelConfig(): ModelConfig {
+  const authProvider = getSelectedAuthProvider();
+
+  if (authProvider === 'google_oauth') {
+    const googleModel = getSelectedGoogleModel();
+    return {
+      provider: 'google_gemini',
+      model: googleModel,
+      apiKey: '', // будет подставлен динамически из OAuth tokens
+      authProvider: 'google_oauth',
+    };
+  }
+
+  // Default: OpenRouter
   const selectedModel = getSelectedModel();
   if (selectedModel === 'none') {
-    return { provider: 'none', model: 'none', apiKey: '' };
+    return { provider: 'none', model: 'none', apiKey: '', authProvider: 'openrouter_key' };
   }
   return {
     provider: 'openai',
     model: OPENROUTER_MODEL_TIERS[selectedModel],
     apiKey: config.ai.openrouterKey,
     baseUrl: config.ai.baseUrl,
+    authProvider: 'openrouter_key',
   };
 }
 
@@ -139,5 +218,6 @@ export function getOpenRouterFallbackConfig(): ModelConfig {
     model: OPENROUTER_MODEL_TIERS.BUDGET,
     apiKey: config.ai.openrouterKey,
     baseUrl: config.ai.baseUrl,
+    authProvider: 'openrouter_key',
   };
 }

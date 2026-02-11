@@ -10,3 +10,4 @@ workspace/
 .context-config.json
 .persona-config.json
 .personas.json
+.google-oauth-tokens.json

@@ -34,8 +34,36 @@
             <div id="result"></div>
         </div>
 
+        <div class="power-source-card">
+            <h2>⚡ Источник силы</h2>
+            <p style="color: #666; font-size: 0.9em; margin-bottom: 15px;">
+                Выберите, через какой провайдер бот обращается к AI
+            </p>
+            <div id="providerList">
+                <p>Загрузка...</p>
+            </div>
+            <div id="providerStatus" style="margin-top: 15px;"></div>
+
+            <!-- Google OAuth controls -->
+            <div id="googleOAuthSection" style="margin-top: 15px; display: none;">
+                <div style="background: #fff3cd; padding: 12px; border-radius: 8px; border-left: 4px solid #ffc107; margin-bottom: 12px; font-size: 0.85em;">
+                    <strong>⚠️ Google OAuth (Preview):</strong> бесплатно, но без SLA. Лимиты могут меняться.
+                </div>
+                <div id="googleStatus" style="margin-bottom: 10px;"></div>
+                <div id="googleModelSelect" style="margin-bottom: 10px; display: none;">
+                    <label style="display: block; margin-bottom: 5px; font-weight: bold;">Gemini модель:</label>
+                    <select id="googleModelDropdown" style="width: 100%; padding: 10px;"></select>
+                    <button onclick="selectGoogleModel()" style="margin-top: 8px; width: 100%;">Применить модель</button>
+                </div>
+                <div style="display: flex; gap: 10px;">
+                    <button id="googleConnectBtn" onclick="connectGoogle()" style="flex: 1; background: #28a745;">🔗 Подключить Google</button>
+                    <button id="googleDisconnectBtn" onclick="disconnectGoogle()" style="flex: 1; background: #dc3545; display: none;">🔓 Отключить</button>
+                </div>
+            </div>
+        </div>
+
         <div class="model-card">
-            <h2>🤖 Выбор AI модели</h2>
+            <h2>🤖 Выбор AI модели (OpenRouter)</h2>
             <div id="modelInfo">
                 <p>Загрузка...</p>
             </div>
@@ -177,17 +205,18 @@
             <p>Это простой бот с возможностью расширения.</p>
             <p><strong>Доступно:</strong></p>
             <ul>
-                <li>✅ AI обработка сообщений (OpenAI, Anthropic)</li>
-                <li>✅ Выбор моделей через веб-интерфейс</li>
+                <li>✅ AI обработка сообщений (OpenRouter, Google Gemini)</li>
+                <li>✅ Google OAuth — бесплатные Gemini модели</li>
+                <li>✅ Выбор моделей и провайдеров через веб-интерфейс</li>
                 <li>✅ База данных для истории сообщений</li>
                 <li>✅ Контекстная память для улучшения ответов</li>
+                <li>✅ Failover: Google OAuth → OpenRouter</li>
                 <li>✅ Доступ из локальной сети</li>
             </ul>
-            <p><strong>В будущем можно добавить:</strong></p>
+            <p><strong>Провайдеры:</strong></p>
             <ul>
-                <li>Дополнительные каналы (WhatsApp, Discord)</li>
-                <li>Персонализация ответов на основе истории</li>
-                <li>Плагины и расширения</li>
+                <li>⚡ <strong>OpenRouter</strong> — Claude, DeepSeek, Gemini и другие (API key)</li>
+                <li>⚡ <strong>Google OAuth</strong> — Gemini Preview бесплатно (OAuth)</li>
             </ul>
         </div>
     </div>

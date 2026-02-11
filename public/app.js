@@ -59,6 +59,246 @@ async function apiFetchMultipart(url, formData) {
 }
 
 // ============================================
+// ИСТОЧНИК СИЛЫ (Auth Providers)
+// ============================================
+
+let currentAuthProvider = 'openrouter_key';
+let providersCache = [];
+
+async function loadProviders() {
+    try {
+        const response = await apiFetch('/api/auth/providers');
+        const data = await response.json();
+
+        providersCache = data.providers || [];
+        currentAuthProvider = data.selected || 'openrouter_key';
+
+        renderProviders(data.providers, data.selected);
+        updateGoogleSection();
+    } catch (error) {
+        document.getElementById('providerList').innerHTML = '<p class="error">Ошибка загрузки провайдеров</p>';
+    }
+}
+
+function renderProviders(providers, selected) {
+    const container = document.getElementById('providerList');
+    container.innerHTML = '';
+
+    providers.forEach(p => {
+        const isActive = p.id === selected;
+        const div = document.createElement('div');
+        div.className = `provider-option ${isActive ? 'active' : ''}`;
+        div.onclick = () => selectProvider(p.id);
+
+        const statusClass = p.status || 'disconnected';
+        const statusLabels = {
+            connected: 'Подключено',
+            expired: 'Истекло',
+            needs_reauth: 'Нужна авторизация',
+            disconnected: 'Не подключено',
+        };
+
+        div.innerHTML = `
+            <div class="provider-radio"></div>
+            <div class="provider-info">
+                <div class="provider-name">${p.name} ${p.isFree ? '<span style="color:#28a745;font-size:0.8em;">БЕСПЛАТНО</span>' : ''}</div>
+                <div class="provider-desc">${p.description}</div>
+            </div>
+            <span class="provider-status ${statusClass}">${statusLabels[statusClass] || statusClass}</span>
+        `;
+        container.appendChild(div);
+    });
+}
+
+async function selectProvider(providerId) {
+    try {
+        // Если Google OAuth не подключён — предложить подключить
+        if (providerId === 'google_oauth') {
+            const statusResp = await apiFetch('/api/auth/google/status');
+            const statusData = await statusResp.json();
+            if (statusData.status === 'disconnected') {
+                if (statusData.configured) {
+                    if (confirm('Google OAuth ещё не подключён. Подключить сейчас?')) {
+                        await connectGoogle();
+                        return;
+                    }
+                } else {
+                    alert('Google OAuth не настроен. Задайте GOOGLE_OAUTH_CLIENT_ID и GOOGLE_OAUTH_CLIENT_SECRET в .env');
+                    return;
+                }
+                return;
+            }
+        }
+
+        const response = await apiFetch('/api/auth/provider/select', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ provider: providerId }),
+        });
+
+        const data = await response.json();
+        if (data.success) {
+            currentAuthProvider = providerId;
+            await loadProviders();
+            await loadModels();
+            await loadStats();
+        } else {
+            alert(`Ошибка: ${data.error}`);
+        }
+    } catch (error) {
+        alert('Ошибка выбора провайдера');
+    }
+}
+
+async function updateGoogleSection() {
+    const section = document.getElementById('googleOAuthSection');
+    const statusDiv = document.getElementById('googleStatus');
+    const connectBtn = document.getElementById('googleConnectBtn');
+    const disconnectBtn = document.getElementById('googleDisconnectBtn');
+    const modelSelectDiv = document.getElementById('googleModelSelect');
+
+    try {
+        const response = await apiFetch('/api/auth/google/status');
+        const data = await response.json();
+
+        section.style.display = 'block';
+
+        if (!data.configured) {
+            statusDiv.innerHTML = '<p style="color: #666;">Google OAuth не настроен (нужен GOOGLE_OAUTH_CLIENT_ID/SECRET в .env)</p>';
+            connectBtn.style.display = 'none';
+            disconnectBtn.style.display = 'none';
+            modelSelectDiv.style.display = 'none';
+            return;
+        }
+
+        const statusColors = {
+            connected: '#28a745',
+            expired: '#ffc107',
+            needs_reauth: '#dc3545',
+            disconnected: '#666',
+        };
+        const statusIcons = {
+            connected: '🟢',
+            expired: '🟡',
+            needs_reauth: '🔴',
+            disconnected: '⚪',
+        };
+
+        statusDiv.innerHTML = `<p style="color: ${statusColors[data.status] || '#666'};">${statusIcons[data.status] || '⚪'} ${data.message}</p>`;
+
+        if (data.status === 'disconnected' || data.status === 'needs_reauth') {
+            connectBtn.style.display = 'block';
+            disconnectBtn.style.display = data.status === 'needs_reauth' ? 'block' : 'none';
+            modelSelectDiv.style.display = 'none';
+        } else {
+            connectBtn.style.display = 'none';
+            disconnectBtn.style.display = 'block';
+            modelSelectDiv.style.display = 'block';
+            await loadGoogleModels();
+        }
+    } catch (error) {
+        section.style.display = 'none';
+    }
+}
+
+async function loadGoogleModels() {
+    try {
+        const response = await apiFetch('/api/auth/models-catalog?provider=google_oauth');
+        const data = await response.json();
+
+        const select = document.getElementById('googleModelDropdown');
+        select.innerHTML = '';
+
+        (data.models || []).forEach(m => {
+            const option = document.createElement('option');
+            option.value = m.id;
+            option.textContent = `${m.name} (${m.tier})`;
+            select.appendChild(option);
+        });
+
+        if (data.recommended) {
+            select.value = data.recommended;
+        }
+    } catch (error) {
+        // silently fail
+    }
+}
+
+async function connectGoogle() {
+    try {
+        const response = await apiFetch('/api/auth/google/url');
+        const data = await response.json();
+
+        if (data.url) {
+            // Открыть OAuth в новом окне
+            const oauthWindow = window.open(data.url, 'google-oauth', 'width=500,height=700');
+
+            // Слушаем результат
+            window.addEventListener('message', async function handler(event) {
+                if (event.data?.type === 'google-oauth-result') {
+                    window.removeEventListener('message', handler);
+                    if (event.data.success) {
+                        alert('✅ Google OAuth подключён!');
+                        await loadProviders();
+                        // Автоматически переключиться на Google OAuth
+                        await selectProvider('google_oauth');
+                    } else {
+                        await loadProviders();
+                    }
+                }
+            });
+        } else {
+            alert(`Ошибка: ${data.error || 'Не удалось получить URL'}`);
+        }
+    } catch (error) {
+        alert('Ошибка подключения Google OAuth');
+    }
+}
+
+async function disconnectGoogle() {
+    if (!confirm('Отключить Google OAuth? Бот переключится на OpenRouter.')) return;
+
+    try {
+        const response = await apiFetch('/api/auth/google/disconnect', { method: 'POST' });
+        const data = await response.json();
+
+        if (data.success) {
+            alert('🔓 Google OAuth отключён');
+            await loadProviders();
+            await loadModels();
+            await loadStats();
+        } else {
+            alert(`Ошибка: ${data.error}`);
+        }
+    } catch (error) {
+        alert('Ошибка отключения Google OAuth');
+    }
+}
+
+async function selectGoogleModel() {
+    const select = document.getElementById('googleModelDropdown');
+    const model = select.value;
+
+    try {
+        const response = await apiFetch('/api/auth/google/model', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ model }),
+        });
+
+        const data = await response.json();
+        if (data.success) {
+            alert(`✅ Gemini модель: ${data.name}`);
+            await loadStats();
+        } else {
+            alert(`Ошибка: ${data.error}`);
+        }
+    } catch (error) {
+        alert('Ошибка выбора Gemini модели');
+    }
+}
+
+// ============================================
 
 // Загрузка статистики
 async function loadStats() {
@@ -85,22 +325,23 @@ async function loadStats() {
         
         // AI статус
         if (data.ai) {
-            if (data.ai.selectedModel && data.ai.selectedModel !== 'none') {
-                if (data.ai.config && data.ai.config.hasApiKey) {
+            const providerLabel = data.ai.authProvider === 'google_oauth' ? '⚡ Google OAuth (Gemini)' : '🔑 OpenRouter API Key';
+            statsHtml += `<p style="margin-top: 15px;"><strong>Источник силы:</strong> ${providerLabel}</p>`;
+
+            if (data.ai.config) {
+                if (data.ai.config.hasApiKey) {
                     statsHtml += `
-                        <p style="margin-top: 15px;"><strong>AI модель:</strong> ✅ ${data.ai.selectedModel}</p>
                         <p><strong>Провайдер:</strong> ${data.ai.config.provider}</p>
                         <p><strong>Модель:</strong> ${data.ai.config.model}</p>
                     `;
                 } else {
                     statsHtml += `
-                        <p style="margin-top: 15px;"><strong>AI модель:</strong> ⚠️ ${data.ai.selectedModel}</p>
-                        <p style="color: orange;">API ключ не настроен</p>
+                        <p style="color: orange;">⚠️ API ключ / OAuth не настроен</p>
                     `;
                 }
             } else {
                 statsHtml += `
-                    <p style="margin-top: 15px;"><strong>AI модель:</strong> ❌ Не выбрана</p>
+                    <p><strong>AI модель:</strong> ❌ Не выбрана</p>
                 `;
             }
         }
@@ -786,6 +1027,7 @@ async function testAI() {
 
 // Загрузка статистики при загрузке страницы
 loadStats();
+loadProviders();
 loadModels();
 loadContextConfig();
 loadPersonas();

@@ -1,10 +1,22 @@
 import { Router } from 'express';
 import multer from 'multer';
-import { getSelectedModel, setSelectedModel, getModelConfig, type AIModel } from '../config/config.js';
+import {
+  getSelectedModel, setSelectedModel, getModelConfig,
+  getSelectedAuthProvider, setSelectedAuthProvider,
+  getSelectedGoogleModel, setSelectedGoogleModel,
+  config,
+  type AIModel,
+} from '../config/config.js';
+import type { AuthProviderId } from '../config/providers.js';
+import { MODEL_CATALOG, getModelsForProvider, getRecommendedModel } from '../config/providers.js';
 import type { ImageAttachment } from '../ai/models.js';
 import type { IncomingMessage } from '../channels/types.js';
 import { channelRegistry } from '../channels/registry.js';
 import { authMiddleware } from './auth.js';
+import {
+  getGoogleAuthUrl, getOAuthStatus, disconnectGoogle,
+  exchangeCodeForTokens, isGoogleOAuthConfigured,
+} from '../auth/google-oauth.js';
 
 function normalizeImageAttachments(raw: unknown): ImageAttachment[] {
   if (!Array.isArray(raw)) return [];
@@ -46,6 +58,7 @@ export function createApiRouter() {
       const selectedModel = getSelectedModel();
       const modelConfig = getModelConfig();
       const dbStats = getDatabaseStats();
+      const authProvider = getSelectedAuthProvider();
 
       const channels = channelRegistry.list().map(ch => ({ id: ch.id, name: ch.name }));
       const telegramPlugin = channelRegistry.get('telegram');
@@ -55,10 +68,11 @@ export function createApiRouter() {
         timestamp: new Date().toISOString(),
         ai: {
           selectedModel,
+          authProvider,
           config: modelConfig.provider !== 'none' ? {
             provider: modelConfig.provider,
             model: modelConfig.model,
-            hasApiKey: !!modelConfig.apiKey,
+            hasApiKey: !!modelConfig.apiKey || authProvider === 'google_oauth',
           } : null,
         },
         database: dbStats,
@@ -85,6 +99,7 @@ export function createApiRouter() {
   // ============================================
   router.get('/api/models', (req, res) => {
     const modelConfig = getModelConfig();
+    const authProvider = getSelectedAuthProvider();
     res.json({
       available: [
         { id: 'none', name: 'Без AI', provider: 'none' },
@@ -95,10 +110,11 @@ export function createApiRouter() {
         { id: 'FREE_TOP', name: 'Kimi K2.5 (Free)', provider: 'openai' },
       ],
       selected: getSelectedModel(),
+      authProvider,
       config: modelConfig.provider !== 'none' ? {
         provider: modelConfig.provider,
         model: modelConfig.model,
-        hasApiKey: !!modelConfig.apiKey,
+        hasApiKey: !!modelConfig.apiKey || authProvider === 'google_oauth',
       } : null,
     });
   });
@@ -123,6 +139,185 @@ export function createApiRouter() {
       });
     } catch (error) {
       res.status(500).json({ error: 'Ошибка выбора модели' });
+    }
+  });
+
+  // ============================================
+  // ИСТОЧНИК СИЛЫ (Auth Providers)
+  // ============================================
+
+  /** Список доступных провайдеров авторизации */
+  router.get('/api/auth/providers', (req, res) => {
+    try {
+      const currentProvider = getSelectedAuthProvider();
+      const googleConfigured = isGoogleOAuthConfigured();
+      const googleStatus = getOAuthStatus();
+
+      const providers = [
+        {
+          id: 'openrouter_key' as AuthProviderId,
+          name: 'OpenRouter API Key',
+          description: 'Платные и бесплатные модели через OpenRouter',
+          isFree: false,
+          configured: !!config.ai.openrouterKey,
+          status: config.ai.openrouterKey ? 'connected' : 'disconnected',
+          statusMessage: config.ai.openrouterKey ? 'API ключ настроен' : 'Нужен OPENROUTER_API_KEY в .env',
+        },
+        {
+          id: 'google_oauth' as AuthProviderId,
+          name: 'Google OAuth (Gemini Preview)',
+          description: 'Бесплатные Gemini модели через Google OAuth (без SLA)',
+          isFree: true,
+          configured: googleConfigured,
+          status: googleStatus.status,
+          statusMessage: googleConfigured ? googleStatus.message : 'Нужен GOOGLE_OAUTH_CLIENT_ID/SECRET в .env',
+          warning: 'Бесплатно, но лимиты могут меняться. Без SLA.',
+        },
+      ];
+
+      res.json({
+        providers,
+        selected: currentProvider,
+      });
+    } catch (error) {
+      res.status(500).json({ error: 'Ошибка получения провайдеров' });
+    }
+  });
+
+  /** Переключить провайдер авторизации */
+  router.post('/api/auth/provider/select', (req, res) => {
+    try {
+      const { provider } = req.body;
+      const validProviders: AuthProviderId[] = ['openrouter_key', 'google_oauth'];
+      if (!validProviders.includes(provider)) {
+        return res.status(400).json({ error: 'Неверный провайдер' });
+      }
+
+      // Проверим, что провайдер настроен
+      if (provider === 'google_oauth') {
+        if (!isGoogleOAuthConfigured()) {
+          return res.status(400).json({
+            error: 'Google OAuth не настроен. Задайте GOOGLE_OAUTH_CLIENT_ID и GOOGLE_OAUTH_CLIENT_SECRET в .env',
+          });
+        }
+        const status = getOAuthStatus();
+        if (status.status === 'disconnected') {
+          return res.status(400).json({
+            error: 'Google OAuth не подключён. Сначала подключите аккаунт Google.',
+          });
+        }
+      }
+
+      if (provider === 'openrouter_key' && !config.ai.openrouterKey) {
+        return res.status(400).json({
+          error: 'OpenRouter API ключ не задан. Задайте OPENROUTER_API_KEY в .env',
+        });
+      }
+
+      setSelectedAuthProvider(provider);
+
+      const modelConfig = getModelConfig();
+      res.json({
+        success: true,
+        selected: provider,
+        modelConfig: modelConfig.provider !== 'none' ? {
+          provider: modelConfig.provider,
+          model: modelConfig.model,
+          hasApiKey: !!modelConfig.apiKey || provider === 'google_oauth',
+        } : null,
+      });
+    } catch (error) {
+      res.status(500).json({ error: 'Ошибка выбора провайдера' });
+    }
+  });
+
+  /** Получить каталог моделей для текущего или указанного провайдера */
+  router.get('/api/auth/models-catalog', (req, res) => {
+    try {
+      const providerId = (req.query.provider as AuthProviderId) || getSelectedAuthProvider();
+      const models = getModelsForProvider(providerId);
+      const recommended = getRecommendedModel(providerId);
+
+      res.json({
+        provider: providerId,
+        models: models.map(m => ({
+          id: m.id,
+          name: m.name,
+          tier: m.tier,
+          capabilities: m.capabilities,
+        })),
+        recommended: recommended?.id || null,
+      });
+    } catch (error) {
+      res.status(500).json({ error: 'Ошибка получения каталога моделей' });
+    }
+  });
+
+  // ─── Google OAuth endpoints ────────────────────────────────────
+
+  /** Получить URL для начала OAuth */
+  router.get('/api/auth/google/url', (req, res) => {
+    try {
+      const authUrl = getGoogleAuthUrl();
+      if (!authUrl) {
+        return res.status(400).json({
+          error: 'Google OAuth не настроен. Задайте GOOGLE_OAUTH_CLIENT_ID и GOOGLE_OAUTH_CLIENT_SECRET в .env',
+        });
+      }
+      res.json({ url: authUrl });
+    } catch (error) {
+      res.status(500).json({ error: 'Ошибка генерации OAuth URL' });
+    }
+  });
+
+  /** Статус Google OAuth */
+  router.get('/api/auth/google/status', (req, res) => {
+    try {
+      const status = getOAuthStatus();
+      const configured = isGoogleOAuthConfigured();
+      res.json({ configured, ...status });
+    } catch (error) {
+      res.status(500).json({ error: 'Ошибка проверки статуса Google OAuth' });
+    }
+  });
+
+  /** Отключить Google OAuth */
+  router.post('/api/auth/google/disconnect', async (req, res) => {
+    try {
+      await disconnectGoogle();
+      // Если текущий провайдер google_oauth — переключить на openrouter
+      if (getSelectedAuthProvider() === 'google_oauth') {
+        setSelectedAuthProvider('openrouter_key');
+      }
+      res.json({ success: true, message: 'Google OAuth отключён' });
+    } catch (error) {
+      res.status(500).json({ error: 'Ошибка отключения Google OAuth' });
+    }
+  });
+
+  /** Выбрать Google-модель (в рамках Google OAuth) */
+  router.post('/api/auth/google/model', (req, res) => {
+    try {
+      const { model } = req.body;
+      if (!model || typeof model !== 'string') {
+        return res.status(400).json({ error: 'Укажите model' });
+      }
+
+      // Проверим, что модель из каталога
+      const googleModels = getModelsForProvider('google_oauth');
+      const found = googleModels.find(m => m.id === model || m.apiModelIds.google_oauth === model);
+      if (!found) {
+        return res.status(400).json({ error: `Модель "${model}" не доступна через Google OAuth` });
+      }
+
+      setSelectedGoogleModel(found.apiModelIds.google_oauth || model);
+      res.json({
+        success: true,
+        model: found.apiModelIds.google_oauth || model,
+        name: found.name,
+      });
+    } catch (error) {
+      res.status(500).json({ error: 'Ошибка выбора Google модели' });
     }
   });
 
