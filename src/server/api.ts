@@ -1,4 +1,4 @@
-import { Router } from 'express';
+import { Router, Response } from 'express';
 import multer from 'multer';
 import {
   getSelectedModel, setSelectedModel, getModelConfig,
@@ -41,6 +41,26 @@ import { getContextConfig, setContextConfig, type ContextConfig } from '../confi
 import { getPersonas, getSelectedPersona, setSelectedPersona, savePersona, deletePersona, type PersonaId } from '../config/personas.js';
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } });
+
+export async function handleAIRequest(res: Response, incoming: IncomingMessage): Promise<void> {
+  const result = await channelRegistry.handleMessage(incoming);
+
+  if (!result) {
+    res.status(500).json({ error: 'Ошибка обработки' });
+    return;
+  }
+
+  res.json({
+    success: true,
+    response: result.text,
+    model: result.model,
+    provider: result.provider,
+    tokensUsed: result.tokensUsed,
+    contextUsed: result.contextUsed ?? 0,
+    contextEnabled: result.contextEnabled ?? false,
+    contextTotal: result.contextTotal ?? 0,
+  });
+}
 
 export function createApiRouter() {
   const router = Router();
@@ -397,22 +417,7 @@ export function createApiRouter() {
         images: imageAttachments.length > 0 ? imageAttachments : undefined,
       };
 
-      const result = await channelRegistry.handleMessage(incoming);
-
-      if (!result) {
-        return res.status(500).json({ error: 'Ошибка обработки' });
-      }
-
-      res.json({
-        success: true,
-        response: result.text,
-        model: result.model,
-        provider: result.provider,
-        tokensUsed: result.tokensUsed,
-        contextUsed: result.contextUsed ?? 0,
-        contextEnabled: result.contextEnabled ?? false,
-        contextTotal: result.contextTotal ?? 0,
-      });
+      await handleAIRequest(res, incoming);
     } catch (error: unknown) {
       const msg = error instanceof Error ? error.message : 'Ошибка AI обработки';
       res.status(500).json({ error: msg });
@@ -442,22 +447,7 @@ export function createApiRouter() {
         images: imageAttachments.length > 0 ? imageAttachments : undefined,
       };
 
-      const result = await channelRegistry.handleMessage(incoming);
-
-      if (!result) {
-        return res.status(500).json({ error: 'Ошибка обработки' });
-      }
-
-      res.json({
-        success: true,
-        response: result.text,
-        model: result.model,
-        provider: result.provider,
-        tokensUsed: result.tokensUsed,
-        contextUsed: result.contextUsed ?? 0,
-        contextEnabled: result.contextEnabled ?? false,
-        contextTotal: result.contextTotal ?? 0,
-      });
+      await handleAIRequest(res, incoming);
     } catch (error: unknown) {
       const msg = error instanceof Error ? error.message : 'Ошибка AI обработки';
       res.status(500).json({ error: msg });
